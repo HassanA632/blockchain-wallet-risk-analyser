@@ -1,3 +1,6 @@
+mod models;
+mod report;
+
 fn main() {
-    println!("Hello, world!");
+    println!("blockchain-wallet-risk-analyser starting");
 }
