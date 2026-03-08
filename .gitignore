@@ -1,0 +1,31 @@
+# Rust
+/target
+
+# Secrets / environment
+.env
+.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+*.temp
+
+# Local caches and generated output
+data/cache/
+data/tmp/
+output/
+
+# Coverage artifacts
+coverage/
+*.profraw
+*.profdata
