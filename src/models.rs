@@ -41,3 +41,10 @@ pub struct RiskEntity {
     pub category: RiskCategory,
     pub description: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveredWallet {
+    pub address: String,
+    pub hop_distance: u8,
+    pub path: Vec<String>,
+}
