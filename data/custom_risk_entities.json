@@ -3,5 +3,10 @@
     "address": "0xwallet2",
     "category": "Custom",
     "description": "Analyst-defined watchlist entry"
+  },
+  {
+    "address": "0xwallet3",
+    "category": "Custom",
+    "description": "Analyst-defined watchlist entry"
   }
 ]

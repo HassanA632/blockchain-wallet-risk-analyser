@@ -1,15 +1,17 @@
+use std::collections::HashMap;
+
 use crate::models::{DiscoveredWallet, Finding, RiskCategory, RiskEntity, RiskLevel};
 
 /// Matches discovered wallets against known risk entities so graph traversal
 /// results can be converted into analyst facing risk findings.
 pub fn build_findings(
     discovered_wallets: &[DiscoveredWallet],
-    risk_entities: &[RiskEntity],
+    risk_index: &HashMap<String, RiskEntity>,
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     for discovered_wallet in discovered_wallets {
-        if let Some(risk_entity) = find_risk_entity(&discovered_wallet.address, risk_entities) {
+        if let Some(risk_entity) = find_risk_entity(&discovered_wallet.address, risk_index) {
             findings.push(Finding {
                 address: discovered_wallet.address.clone(),
                 hop_distance: discovered_wallet.hop_distance,
@@ -29,10 +31,11 @@ pub fn build_findings(
 
 /// Finds the risk entity record for a discovered wallet address so matching can
 /// enrich traversal results with risk metadata.
-fn find_risk_entity<'a>(address: &str, risk_entities: &'a [RiskEntity]) -> Option<&'a RiskEntity> {
-    risk_entities
-        .iter()
-        .find(|entity| entity.address == address)
+fn find_risk_entity<'a>(
+    address: &str,
+    risk_index: &'a HashMap<String, RiskEntity>,
+) -> Option<&'a RiskEntity> {
+    risk_index.get(address)
 }
 
 /// Assigns a risk level using hop distance and risk category so findings stay
@@ -53,24 +56,33 @@ mod tests {
     use super::*;
     use crate::models::{DiscoveredWallet, RiskCategory, RiskEntity, RiskLevel};
 
-    fn sample_risk_entities() -> Vec<RiskEntity> {
-        vec![
-            RiskEntity {
-                address: "0xrisky1".to_string(),
-                category: RiskCategory::Sanctioned,
-                description: "Known sanctioned wallet".to_string(),
-            },
-            RiskEntity {
-                address: "0xrisky2".to_string(),
-                category: RiskCategory::Mixer,
-                description: "Known mixer wallet".to_string(),
-            },
-            RiskEntity {
-                address: "0xwatch1".to_string(),
-                category: RiskCategory::Custom,
-                description: "Analyst watchlist entry".to_string(),
-            },
-        ]
+    fn sample_risk_index() -> HashMap<String, RiskEntity> {
+        HashMap::from([
+            (
+                "0xrisky1".to_string(),
+                RiskEntity {
+                    address: "0xrisky1".to_string(),
+                    category: RiskCategory::Sanctioned,
+                    description: "Known sanctioned wallet".to_string(),
+                },
+            ),
+            (
+                "0xrisky2".to_string(),
+                RiskEntity {
+                    address: "0xrisky2".to_string(),
+                    category: RiskCategory::Mixer,
+                    description: "Known mixer wallet".to_string(),
+                },
+            ),
+            (
+                "0xwatch1".to_string(),
+                RiskEntity {
+                    address: "0xwatch1".to_string(),
+                    category: RiskCategory::Custom,
+                    description: "Analyst watchlist entry".to_string(),
+                },
+            ),
+        ])
     }
 
     #[test]
@@ -92,7 +104,7 @@ mod tests {
             },
         ];
 
-        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+        let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].address, "0xrisky1");
@@ -114,7 +126,7 @@ mod tests {
             path: vec!["0xtarget".to_string(), "0xrisky1".to_string()],
         }];
 
-        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+        let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::High);
@@ -132,7 +144,7 @@ mod tests {
             path: vec!["0xtarget".to_string(), "0xwatch1".to_string()],
         }];
 
-        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+        let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::Medium);
@@ -154,7 +166,7 @@ mod tests {
             ],
         }];
 
-        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+        let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::Low);
