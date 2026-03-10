@@ -19,6 +19,7 @@ pub fn build_findings(
                     &risk_entity.category,
                 ),
                 description: risk_entity.description.clone(),
+                path: discovered_wallet.path.clone(),
             });
         }
     }
@@ -50,7 +51,7 @@ fn determine_risk_level(hop_distance: u8, category: &RiskCategory) -> RiskLevel 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DiscoveredWallet, RiskCategory, RiskEntity};
+    use crate::models::{DiscoveredWallet, RiskCategory, RiskEntity, RiskLevel};
 
     fn sample_risk_entities() -> Vec<RiskEntity> {
         vec![
@@ -95,6 +96,14 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].address, "0xrisky1");
+        assert_eq!(
+            findings[0].path,
+            vec![
+                "0xtarget".to_string(),
+                "0xwallet1".to_string(),
+                "0xrisky1".to_string(),
+            ]
+        );
     }
 
     #[test]
@@ -109,6 +118,10 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::High);
+        assert_eq!(
+            findings[0].path,
+            vec!["0xtarget".to_string(), "0xrisky1".to_string()]
+        );
     }
 
     #[test]
@@ -123,6 +136,10 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::Medium);
+        assert_eq!(
+            findings[0].path,
+            vec!["0xtarget".to_string(), "0xwatch1".to_string()]
+        );
     }
 
     #[test]
@@ -141,5 +158,13 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::Low);
+        assert_eq!(
+            findings[0].path,
+            vec![
+                "0xtarget".to_string(),
+                "0xwallet2".to_string(),
+                "0xrisky2".to_string(),
+            ]
+        );
     }
 }

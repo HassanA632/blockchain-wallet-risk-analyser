@@ -53,7 +53,7 @@ pub fn build_risk_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Finding, RiskCategory};
+    use crate::models::{Finding, RiskCategory, RiskLevel};
 
     fn sample_findings() -> Vec<Finding> {
         vec![
@@ -63,6 +63,7 @@ mod tests {
                 category: RiskCategory::Custom,
                 risk_level: RiskLevel::Medium,
                 description: "Analyst watchlist entry".to_string(),
+                path: vec!["0xtarget".to_string(), "0xone".to_string()],
             },
             Finding {
                 address: "0xtwo".to_string(),
@@ -70,6 +71,7 @@ mod tests {
                 category: RiskCategory::Sanctioned,
                 risk_level: RiskLevel::High,
                 description: "Known sanctioned wallet".to_string(),
+                path: vec!["0xtarget".to_string(), "0xtwo".to_string()],
             },
         ]
     }

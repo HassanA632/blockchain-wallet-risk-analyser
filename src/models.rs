@@ -28,6 +28,7 @@ pub struct Finding {
     pub category: RiskCategory,
     pub risk_level: RiskLevel,
     pub description: String,
+    pub path: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

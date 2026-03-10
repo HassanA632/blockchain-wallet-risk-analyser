@@ -112,6 +112,26 @@ mod tests {
                 .any(|wallet| wallet.address == "0xwallet2")
         );
         assert!(discovered.iter().all(|wallet| wallet.hop_distance == 1));
+
+        let wallet1 = discovered
+            .iter()
+            .find(|wallet| wallet.address == "0xwallet1")
+            .expect("0xwallet1 should be discovered");
+
+        assert_eq!(
+            wallet1.path,
+            vec!["0xtarget".to_string(), "0xwallet1".to_string()]
+        );
+
+        let wallet2 = discovered
+            .iter()
+            .find(|wallet| wallet.address == "0xwallet2")
+            .expect("0xwallet2 should be discovered");
+
+        assert_eq!(
+            wallet2.path,
+            vec!["0xtarget".to_string(), "0xwallet2".to_string()]
+        );
     }
 
     #[test]
@@ -121,6 +141,36 @@ mod tests {
         assert_eq!(discovered.len(), 4);
         assert!(discovered.iter().any(|wallet| wallet.address == "0xrisky1"));
         assert!(discovered.iter().any(|wallet| wallet.address == "0xrisky2"));
+
+        let risky1 = discovered
+            .iter()
+            .find(|wallet| wallet.address == "0xrisky1")
+            .expect("0xrisky1 should be discovered");
+
+        assert_eq!(risky1.hop_distance, 2);
+        assert_eq!(
+            risky1.path,
+            vec![
+                "0xtarget".to_string(),
+                "0xwallet1".to_string(),
+                "0xrisky1".to_string()
+            ]
+        );
+
+        let risky2 = discovered
+            .iter()
+            .find(|wallet| wallet.address == "0xrisky2")
+            .expect("0xrisky2 should be discovered");
+
+        assert_eq!(risky2.hop_distance, 2);
+        assert_eq!(
+            risky2.path,
+            vec![
+                "0xtarget".to_string(),
+                "0xwallet2".to_string(),
+                "0xrisky2".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -139,5 +189,15 @@ mod tests {
         let discovered = discover_wallets("0xtarget", 2, &edges);
 
         assert!(discovered.iter().all(|wallet| wallet.address != "0xtarget"));
+
+        let wallet1 = discovered
+            .iter()
+            .find(|wallet| wallet.address == "0xwallet1")
+            .expect("0xwallet1 should still be discovered");
+
+        assert_eq!(
+            wallet1.path,
+            vec!["0xtarget".to_string(), "0xwallet1".to_string()]
+        );
     }
 }
