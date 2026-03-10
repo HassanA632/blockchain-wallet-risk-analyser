@@ -4,6 +4,7 @@ use blockchain_wallet_risk_analyser::analysis::build_findings;
 use blockchain_wallet_risk_analyser::cli::CliArgs;
 use blockchain_wallet_risk_analyser::errors::AppError;
 use blockchain_wallet_risk_analyser::loader::{load_risk_entities, load_transaction_edges};
+use blockchain_wallet_risk_analyser::output::write_output;
 use blockchain_wallet_risk_analyser::report::build_risk_report;
 use blockchain_wallet_risk_analyser::risk::combine_risk_entities;
 use blockchain_wallet_risk_analyser::traversal::discover_wallets;
@@ -30,7 +31,10 @@ fn main() -> Result<(), AppError> {
     let json =
         serde_json::to_string_pretty(&report).expect("risk report serialization should succeed");
 
-    println!("{json}");
+    match args.output.as_deref() {
+        Some(path) => write_output(path, &json)?,
+        None => println!("{json}"),
+    }
 
     Ok(())
 }
