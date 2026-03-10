@@ -1,6 +1,7 @@
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 pub enum Chain {
     Ethereum,
 }
