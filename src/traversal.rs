@@ -69,3 +69,75 @@ fn connected_wallet<'a>(address: &str, edge: &'a TransactionEdge) -> Option<&'a 
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::TransactionEdge;
+
+    fn sample_edges() -> Vec<TransactionEdge> {
+        vec![
+            TransactionEdge {
+                from_address: "0xtarget".to_string(),
+                to_address: "0xwallet1".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0xtarget".to_string(),
+                to_address: "0xwallet2".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0xwallet1".to_string(),
+                to_address: "0xrisky1".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0xwallet2".to_string(),
+                to_address: "0xrisky2".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn discovers_direct_wallets_at_one_hop() {
+        let discovered = discover_wallets("0xtarget", 1, &sample_edges());
+
+        assert_eq!(discovered.len(), 2);
+        assert!(
+            discovered
+                .iter()
+                .any(|wallet| wallet.address == "0xwallet1")
+        );
+        assert!(
+            discovered
+                .iter()
+                .any(|wallet| wallet.address == "0xwallet2")
+        );
+        assert!(discovered.iter().all(|wallet| wallet.hop_distance == 1));
+    }
+
+    #[test]
+    fn discovers_wallets_up_to_two_hops() {
+        let discovered = discover_wallets("0xtarget", 2, &sample_edges());
+
+        assert_eq!(discovered.len(), 4);
+        assert!(discovered.iter().any(|wallet| wallet.address == "0xrisky1"));
+        assert!(discovered.iter().any(|wallet| wallet.address == "0xrisky2"));
+    }
+
+    #[test]
+    fn does_not_rediscover_target_wallet() {
+        let edges = vec![
+            TransactionEdge {
+                from_address: "0xtarget".to_string(),
+                to_address: "0xwallet1".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0xwallet1".to_string(),
+                to_address: "0xtarget".to_string(),
+            },
+        ];
+
+        let discovered = discover_wallets("0xtarget", 2, &edges);
+
+        assert!(discovered.iter().all(|wallet| wallet.address != "0xtarget"));
+    }
+}

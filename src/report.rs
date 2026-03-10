@@ -49,3 +49,44 @@ pub fn build_risk_report(
         findings,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{Finding, RiskCategory};
+
+    fn sample_findings() -> Vec<Finding> {
+        vec![
+            Finding {
+                address: "0xone".to_string(),
+                hop_distance: 1,
+                category: RiskCategory::Custom,
+                risk_level: RiskLevel::Medium,
+                description: "Analyst watchlist entry".to_string(),
+            },
+            Finding {
+                address: "0xtwo".to_string(),
+                hop_distance: 1,
+                category: RiskCategory::Sanctioned,
+                risk_level: RiskLevel::High,
+                description: "Known sanctioned wallet".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn builds_summary_with_correct_count_and_highest_risk() {
+        let summary = build_summary(&sample_findings());
+
+        assert_eq!(summary.risky_wallets_found, 2);
+        assert_eq!(summary.highest_risk_level, Some(RiskLevel::High));
+    }
+
+    #[test]
+    fn builds_summary_with_no_highest_risk_for_empty_findings() {
+        let summary = build_summary(&[]);
+
+        assert_eq!(summary.risky_wallets_found, 0);
+        assert_eq!(summary.highest_risk_level, None);
+    }
+}

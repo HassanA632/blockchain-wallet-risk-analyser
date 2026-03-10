@@ -46,3 +46,100 @@ fn determine_risk_level(hop_distance: u8, category: &RiskCategory) -> RiskLevel 
         _ => RiskLevel::Low,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{DiscoveredWallet, RiskCategory, RiskEntity};
+
+    fn sample_risk_entities() -> Vec<RiskEntity> {
+        vec![
+            RiskEntity {
+                address: "0xrisky1".to_string(),
+                category: RiskCategory::Sanctioned,
+                description: "Known sanctioned wallet".to_string(),
+            },
+            RiskEntity {
+                address: "0xrisky2".to_string(),
+                category: RiskCategory::Mixer,
+                description: "Known mixer wallet".to_string(),
+            },
+            RiskEntity {
+                address: "0xwatch1".to_string(),
+                category: RiskCategory::Custom,
+                description: "Analyst watchlist entry".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn builds_findings_for_matching_wallets_only() {
+        let discovered_wallets = vec![
+            DiscoveredWallet {
+                address: "0xrisky1".to_string(),
+                hop_distance: 2,
+                path: vec![
+                    "0xtarget".to_string(),
+                    "0xwallet1".to_string(),
+                    "0xrisky1".to_string(),
+                ],
+            },
+            DiscoveredWallet {
+                address: "0xclean1".to_string(),
+                hop_distance: 1,
+                path: vec!["0xtarget".to_string(), "0xclean1".to_string()],
+            },
+        ];
+
+        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].address, "0xrisky1");
+    }
+
+    #[test]
+    fn assigns_high_risk_to_direct_sanctioned_wallets() {
+        let discovered_wallets = vec![DiscoveredWallet {
+            address: "0xrisky1".to_string(),
+            hop_distance: 1,
+            path: vec!["0xtarget".to_string(), "0xrisky1".to_string()],
+        }];
+
+        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].risk_level, RiskLevel::High);
+    }
+
+    #[test]
+    fn assigns_medium_risk_to_direct_custom_wallets() {
+        let discovered_wallets = vec![DiscoveredWallet {
+            address: "0xwatch1".to_string(),
+            hop_distance: 1,
+            path: vec!["0xtarget".to_string(), "0xwatch1".to_string()],
+        }];
+
+        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].risk_level, RiskLevel::Medium);
+    }
+
+    #[test]
+    fn assigns_low_risk_to_two_hop_matches() {
+        let discovered_wallets = vec![DiscoveredWallet {
+            address: "0xrisky2".to_string(),
+            hop_distance: 2,
+            path: vec![
+                "0xtarget".to_string(),
+                "0xwallet2".to_string(),
+                "0xrisky2".to_string(),
+            ],
+        }];
+
+        let findings = build_findings(&discovered_wallets, &sample_risk_entities());
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].risk_level, RiskLevel::Low);
+    }
+}
