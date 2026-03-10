@@ -1,6 +1,7 @@
 use clap::Parser;
 
 use crate::models::Chain;
+use crate::validation::validate_ethereum_address;
 
 /// Defines the command line inputs required to run a wallet exposure analysis
 /// so analysts can supply the target, scope, and optional custom risk data.
@@ -10,7 +11,7 @@ pub struct CliArgs {
     #[arg(long)]
     pub chain: Chain,
 
-    #[arg(long)]
+    #[arg(long, value_parser = validate_ethereum_address)]
     pub wallet: String,
 
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=2))]
