@@ -17,6 +17,9 @@ pub struct CliArgs {
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=2))]
     pub hops: u8,
 
+    #[arg(long)]
+    pub graph: Option<String>,
+
     #[arg(long = "custom-risk-list")]
     pub custom_risk_list: Option<String>,
 

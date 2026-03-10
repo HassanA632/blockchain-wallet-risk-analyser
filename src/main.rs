@@ -9,10 +9,13 @@ use blockchain_wallet_risk_analyser::report::build_risk_report;
 use blockchain_wallet_risk_analyser::risk::build_risk_index;
 use blockchain_wallet_risk_analyser::traversal::discover_wallets;
 
+const DEFAULT_GRAPH_PATH: &str = "data/sample_graph.json";
+
 fn main() -> Result<(), AppError> {
     let args = CliArgs::parse();
 
-    let edges = load_transaction_edges("data/sample_graph.json")?;
+    let graph_path = args.graph.as_deref().unwrap_or(DEFAULT_GRAPH_PATH);
+    let edges = load_transaction_edges(graph_path)?;
     let built_in_risk_entities = load_risk_entities("data/risk_entities.json")?;
 
     let custom_risk_entities = match args.custom_risk_list.as_deref() {
