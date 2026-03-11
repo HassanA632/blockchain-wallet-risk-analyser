@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::models::{DiscoveredWallet, WalletRelationship};
+use crate::models::{DiscoveredWallet, RelationshipStep, WalletRelationship};
 
 /// Discovers wallets connected to a target address within the requested hop
 /// depth so later analysis can check them against risk intelligence.
@@ -11,18 +11,21 @@ pub fn discover_wallets(
 ) -> Vec<DiscoveredWallet> {
     let mut discovered = Vec::new();
     let mut seen_addresses = HashSet::new();
-    let mut first_hop_wallets = Vec::new();
+    let mut first_hop_wallets: Vec<(String, RelationshipStep)> = Vec::new();
 
     for relationship in relationships {
         if let Some(neighbour) = connected_wallet(target_wallet, relationship) {
             if seen_addresses.insert(neighbour.to_string()) {
+                let first_step = relationship_step(target_wallet, neighbour, relationship);
+
                 let wallet = DiscoveredWallet {
                     address: neighbour.to_string(),
                     hop_distance: 1,
                     path: vec![target_wallet.to_string(), neighbour.to_string()],
+                    relationship_path: vec![first_step.clone()],
                 };
 
-                first_hop_wallets.push(neighbour.to_string());
+                first_hop_wallets.push((neighbour.to_string(), first_step));
                 discovered.push(wallet);
             }
         }
@@ -32,7 +35,7 @@ pub fn discover_wallets(
         return discovered;
     }
 
-    for first_hop_wallet in first_hop_wallets {
+    for (first_hop_wallet, first_step) in first_hop_wallets {
         for relationship in relationships {
             if let Some(neighbour) = connected_wallet(&first_hop_wallet, relationship) {
                 if neighbour == target_wallet {
@@ -47,6 +50,10 @@ pub fn discover_wallets(
                             target_wallet.to_string(),
                             first_hop_wallet.clone(),
                             neighbour.to_string(),
+                        ],
+                        relationship_path: vec![
+                            first_step.clone(),
+                            relationship_step(&first_hop_wallet, neighbour, relationship),
                         ],
                     });
                 }
@@ -67,6 +74,36 @@ fn connected_wallet<'a>(address: &str, relationship: &'a WalletRelationship) -> 
         Some(relationship.wallet_a.as_str())
     } else {
         None
+    }
+}
+
+/// Converts a wallet relationship into a path step oriented to the current
+/// traversal direction so reports show the hop sequence.
+fn relationship_step(
+    from_wallet: &str,
+    to_wallet: &str,
+    relationship: &WalletRelationship,
+) -> RelationshipStep {
+    let (transaction_count, totals_by_asset) =
+        if relationship.wallet_a == from_wallet && relationship.wallet_b == to_wallet {
+            (
+                relationship.a_to_b_transaction_count,
+                relationship.a_to_b_totals_by_asset.clone(),
+            )
+        } else {
+            (
+                relationship.b_to_a_transaction_count,
+                relationship.b_to_a_totals_by_asset.clone(),
+            )
+        };
+
+    RelationshipStep {
+        from_wallet: from_wallet.to_string(),
+        to_wallet: to_wallet.to_string(),
+        transaction_count,
+        assets_seen: relationship.assets_seen.clone(),
+        totals_by_asset,
+        latest_timestamp: relationship.latest_timestamp.clone(),
     }
 }
 
@@ -152,6 +189,17 @@ mod tests {
                 "0x2222222222222222222222222222222222222222".to_string()
             ]
         );
+        assert_eq!(wallet1.relationship_path.len(), 1);
+
+        assert_eq!(
+            wallet1.relationship_path[0].from_wallet,
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            wallet1.relationship_path[0].to_wallet,
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(wallet1.relationship_path[0].transaction_count, 1);
 
         let wallet2 = discovered
             .iter()
@@ -164,6 +212,16 @@ mod tests {
                 "0x1111111111111111111111111111111111111111".to_string(),
                 "0x3333333333333333333333333333333333333333".to_string()
             ]
+        );
+        assert_eq!(wallet2.relationship_path.len(), 1);
+
+        assert_eq!(
+            wallet2.relationship_path[0].from_wallet,
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            wallet2.relationship_path[0].to_wallet,
+            "0x3333333333333333333333333333333333333333"
         );
     }
 
@@ -200,6 +258,24 @@ mod tests {
                 "0x2222222222222222222222222222222222222222".to_string(),
                 "0x4444444444444444444444444444444444444444".to_string()
             ]
+        );
+        assert_eq!(risky1.relationship_path.len(), 2);
+
+        assert_eq!(
+            risky1.relationship_path[0].from_wallet,
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            risky1.relationship_path[0].to_wallet,
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(
+            risky1.relationship_path[1].from_wallet,
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(
+            risky1.relationship_path[1].to_wallet,
+            "0x4444444444444444444444444444444444444444"
         );
 
         let risky2 = discovered
@@ -252,7 +328,7 @@ mod tests {
         assert!(
             discovered
                 .iter()
-                .all(|wallet| { wallet.address != "0x1111111111111111111111111111111111111111" })
+                .all(|wallet| wallet.address != "0x1111111111111111111111111111111111111111")
         );
 
         let wallet1 = discovered
@@ -266,6 +342,21 @@ mod tests {
                 "0x1111111111111111111111111111111111111111".to_string(),
                 "0x2222222222222222222222222222222222222222".to_string()
             ]
+        );
+
+        assert_eq!(wallet1.relationship_path.len(), 1);
+        assert_eq!(
+            wallet1.relationship_path[0].from_wallet,
+            "0x1111111111111111111111111111111111111111"
+        );
+        assert_eq!(
+            wallet1.relationship_path[0].to_wallet,
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(wallet1.relationship_path[0].transaction_count, 1);
+        assert_eq!(
+            wallet1.relationship_path[0].totals_by_asset.get("ETH"),
+            Some(&1.0)
         );
     }
 }

@@ -11,7 +11,7 @@ pub fn build_wallet_relationships(edges: &[TransactionEdge]) -> Vec<WalletRelati
         let (wallet_a, wallet_b) = canonical_wallet_pair(&edge.from_address, &edge.to_address);
 
         let relationship = grouped
-            .entry((wallet_a, wallet_b))
+            .entry((wallet_a.clone(), wallet_b.clone()))
             .or_insert_with(RelationshipAccumulator::default);
 
         relationship.transaction_count += 1;
@@ -22,10 +22,19 @@ pub fn build_wallet_relationships(edges: &[TransactionEdge]) -> Vec<WalletRelati
             .parse::<f64>()
             .expect("transaction amounts should parse as f64 during relationship aggregation");
 
-        *relationship
-            .totals_by_asset
-            .entry(edge.asset.clone())
-            .or_insert(0.0) += amount;
+        if edge.from_address == wallet_a && edge.to_address == wallet_b {
+            relationship.a_to_b_transaction_count += 1;
+            *relationship
+                .a_to_b_totals_by_asset
+                .entry(edge.asset.clone())
+                .or_insert(0.0) += amount;
+        } else {
+            relationship.b_to_a_transaction_count += 1;
+            *relationship
+                .b_to_a_totals_by_asset
+                .entry(edge.asset.clone())
+                .or_insert(0.0) += amount;
+        }
 
         if edge.timestamp > relationship.latest_timestamp {
             relationship.latest_timestamp = edge.timestamp.clone();
@@ -39,8 +48,11 @@ pub fn build_wallet_relationships(edges: &[TransactionEdge]) -> Vec<WalletRelati
             wallet_b,
             transaction_count: accumulator.transaction_count,
             assets_seen: accumulator.assets_seen.into_iter().collect(),
-            totals_by_asset: accumulator.totals_by_asset,
             latest_timestamp: accumulator.latest_timestamp,
+            a_to_b_transaction_count: accumulator.a_to_b_transaction_count,
+            b_to_a_transaction_count: accumulator.b_to_a_transaction_count,
+            a_to_b_totals_by_asset: accumulator.a_to_b_totals_by_asset,
+            b_to_a_totals_by_asset: accumulator.b_to_a_totals_by_asset,
         })
         .collect();
 
@@ -67,8 +79,11 @@ fn canonical_wallet_pair(left: &str, right: &str) -> (String, String) {
 struct RelationshipAccumulator {
     transaction_count: usize,
     assets_seen: BTreeSet<String>,
-    totals_by_asset: BTreeMap<String, f64>,
     latest_timestamp: String,
+    a_to_b_transaction_count: usize,
+    b_to_a_transaction_count: usize,
+    a_to_b_totals_by_asset: BTreeMap<String, f64>,
+    b_to_a_totals_by_asset: BTreeMap<String, f64>,
 }
 
 #[cfg(test)]
@@ -136,9 +151,17 @@ mod tests {
             relationship.assets_seen,
             vec!["ETH".to_string(), "USDC".to_string()]
         );
-        assert_eq!(relationship.totals_by_asset.get("ETH"), Some(&2.0));
-        assert_eq!(relationship.totals_by_asset.get("USDC"), Some(&500.0));
         assert_eq!(relationship.latest_timestamp, "2026-03-11T10:10:00Z");
+
+        assert_eq!(relationship.a_to_b_transaction_count, 2);
+        assert_eq!(relationship.b_to_a_transaction_count, 1);
+
+        assert_eq!(relationship.a_to_b_totals_by_asset.get("ETH"), Some(&1.25));
+        assert_eq!(
+            relationship.a_to_b_totals_by_asset.get("USDC"),
+            Some(&500.0)
+        );
+        assert_eq!(relationship.b_to_a_totals_by_asset.get("ETH"), Some(&0.75));
     }
 
     #[test]
@@ -161,5 +184,32 @@ mod tests {
             relationship.wallet_b,
             "0x2222222222222222222222222222222222222222"
         );
+    }
+
+    #[test]
+    fn tracks_directional_totals_and_counts_for_each_wallet_pair() {
+        let relationships = build_wallet_relationships(&sample_edges());
+
+        let relationship = relationships
+            .iter()
+            .find(|relationship| {
+                relationship.wallet_a == "0x1111111111111111111111111111111111111111"
+                    && relationship.wallet_b == "0x2222222222222222222222222222222222222222"
+            })
+            .expect("relationship between wallets 0x111... and 0x222... should exist");
+
+        assert_eq!(relationship.transaction_count, 3);
+        assert_eq!(relationship.a_to_b_transaction_count, 2);
+        assert_eq!(relationship.b_to_a_transaction_count, 1);
+
+        assert_eq!(relationship.a_to_b_totals_by_asset.len(), 2);
+        assert_eq!(relationship.b_to_a_totals_by_asset.len(), 1);
+
+        assert_eq!(relationship.a_to_b_totals_by_asset.get("ETH"), Some(&1.25));
+        assert_eq!(
+            relationship.a_to_b_totals_by_asset.get("USDC"),
+            Some(&500.0)
+        );
+        assert_eq!(relationship.b_to_a_totals_by_asset.get("ETH"), Some(&0.75));
     }
 }

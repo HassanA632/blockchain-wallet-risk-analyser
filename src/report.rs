@@ -13,7 +13,7 @@ pub struct ReportSummary {
     pub high_risk_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RiskReport {
     pub target_wallet: String,
     pub chain: Chain,
@@ -87,8 +87,10 @@ pub fn build_risk_report(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
-    use crate::models::{Finding, RiskCategory, RiskLevel, RiskSource};
+    use crate::models::{Finding, RelationshipStep, RiskCategory, RiskLevel, RiskSource};
 
     fn sample_findings() -> Vec<Finding> {
         vec![
@@ -100,6 +102,14 @@ mod tests {
                 risk_level: RiskLevel::Medium,
                 description: "Analyst watchlist entry".to_string(),
                 path: vec!["0xtarget".to_string(), "0xone".to_string()],
+                relationship_path: vec![RelationshipStep {
+                    from_wallet: "0xtarget".to_string(),
+                    to_wallet: "0xone".to_string(),
+                    transaction_count: 1,
+                    assets_seen: vec!["ETH".to_string()],
+                    totals_by_asset: BTreeMap::from([("ETH".to_string(), 1.0)]),
+                    latest_timestamp: "2026-03-11T10:00:00Z".to_string(),
+                }],
             },
             Finding {
                 address: "0xtwo".to_string(),
@@ -109,6 +119,14 @@ mod tests {
                 risk_level: RiskLevel::High,
                 description: "Known sanctioned wallet".to_string(),
                 path: vec!["0xtarget".to_string(), "0xtwo".to_string()],
+                relationship_path: vec![RelationshipStep {
+                    from_wallet: "0xtarget".to_string(),
+                    to_wallet: "0xtwo".to_string(),
+                    transaction_count: 1,
+                    assets_seen: vec!["ETH".to_string()],
+                    totals_by_asset: BTreeMap::from([("ETH".to_string(), 2.0)]),
+                    latest_timestamp: "2026-03-11T10:10:00Z".to_string(),
+                }],
             },
             Finding {
                 address: "0xthree".to_string(),
@@ -121,6 +139,24 @@ mod tests {
                     "0xtarget".to_string(),
                     "0xwallet1".to_string(),
                     "0xthree".to_string(),
+                ],
+                relationship_path: vec![
+                    RelationshipStep {
+                        from_wallet: "0xtarget".to_string(),
+                        to_wallet: "0xwallet1".to_string(),
+                        transaction_count: 1,
+                        assets_seen: vec!["USDC".to_string()],
+                        totals_by_asset: BTreeMap::from([("USDC".to_string(), 500.0)]),
+                        latest_timestamp: "2026-03-11T10:05:00Z".to_string(),
+                    },
+                    RelationshipStep {
+                        from_wallet: "0xwallet1".to_string(),
+                        to_wallet: "0xthree".to_string(),
+                        transaction_count: 1,
+                        assets_seen: vec!["DAI".to_string()],
+                        totals_by_asset: BTreeMap::from([("DAI".to_string(), 1200.0)]),
+                        latest_timestamp: "2026-03-11T10:15:00Z".to_string(),
+                    },
                 ],
             },
         ]
