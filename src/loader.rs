@@ -81,7 +81,11 @@ mod tests {
         [
             {
                 "from_address": "0xAbCdEf1234567890aBCdef1234567890abCDef12",
-                "to_address": "0x1234567890ABCDef1234567890abCDef12345678"
+                "to_address": "0x1234567890ABCDef1234567890abCDef12345678",
+                "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "asset": "ETH",
+                "amount": "1.50",
+                "timestamp": "2026-03-11T12:00:00Z"
             }
         ]
         "#;
@@ -99,6 +103,13 @@ mod tests {
             edges[0].to_address,
             "0x1234567890abcdef1234567890abcdef12345678"
         );
+        assert_eq!(
+            edges[0].tx_hash,
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+        assert_eq!(edges[0].asset, "ETH");
+        assert_eq!(edges[0].amount, "1.50");
+        assert_eq!(edges[0].timestamp, "2026-03-11T12:00:00Z");
 
         fs::remove_file(&file_path).expect("test graph json should be removed");
     }

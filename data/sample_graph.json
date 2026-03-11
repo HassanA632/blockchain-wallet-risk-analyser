@@ -1,18 +1,34 @@
 [
   {
     "from_address": "0x1111111111111111111111111111111111111111",
-    "to_address": "0x2222222222222222222222222222222222222222"
+    "to_address": "0x2222222222222222222222222222222222222222",
+    "tx_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "asset": "ETH",
+    "amount": "1.25",
+    "timestamp": "2026-03-11T10:00:00Z"
   },
   {
     "from_address": "0x1111111111111111111111111111111111111111",
-    "to_address": "0x3333333333333333333333333333333333333333"
+    "to_address": "0x3333333333333333333333333333333333333333",
+    "tx_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "asset": "USDC",
+    "amount": "500.00",
+    "timestamp": "2026-03-11T10:05:00Z"
   },
   {
     "from_address": "0x2222222222222222222222222222222222222222",
-    "to_address": "0x4444444444444444444444444444444444444444"
+    "to_address": "0x4444444444444444444444444444444444444444",
+    "tx_hash": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "asset": "ETH",
+    "amount": "0.75",
+    "timestamp": "2026-03-11T10:10:00Z"
   },
   {
     "from_address": "0x3333333333333333333333333333333333333333",
-    "to_address": "0x5555555555555555555555555555555555555555"
+    "to_address": "0x5555555555555555555555555555555555555555",
+    "tx_hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "asset": "DAI",
+    "amount": "1200.00",
+    "timestamp": "2026-03-11T10:15:00Z"
   }
 ]

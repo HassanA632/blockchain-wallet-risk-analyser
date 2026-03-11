@@ -42,6 +42,10 @@ pub struct Finding {
 pub struct TransactionEdge {
     pub from_address: String,
     pub to_address: String,
+    pub tx_hash: String,
+    pub asset: String,
+    pub amount: String,
+    pub timestamp: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
