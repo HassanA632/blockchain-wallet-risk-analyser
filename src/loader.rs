@@ -1,9 +1,18 @@
 use std::fs;
 use std::path::Path;
 
+use serde::Deserialize;
+
 use crate::errors::AppError;
-use crate::models::{RiskEntity, TransactionEdge};
+use crate::models::{RiskCategory, RiskEntity, RiskSource, TransactionEdge};
 use crate::validation::normalize_ethereum_address;
+
+#[derive(Debug, Deserialize)]
+struct RawRiskEntity {
+    address: String,
+    category: RiskCategory,
+    description: String,
+}
 
 /// Loads transaction edges from a JSON file so the analysis engine can build a wallet interaction graph.
 pub fn load_transaction_edges(path: impl AsRef<Path>) -> Result<Vec<TransactionEdge>, AppError> {
@@ -18,15 +27,32 @@ pub fn load_transaction_edges(path: impl AsRef<Path>) -> Result<Vec<TransactionE
     Ok(edges)
 }
 
+pub fn load_built_in_risk_entities(path: impl AsRef<Path>) -> Result<Vec<RiskEntity>, AppError> {
+    load_risk_entities_with_source(path, RiskSource::BuiltIn)
+}
+
+pub fn load_custom_risk_entities(path: impl AsRef<Path>) -> Result<Vec<RiskEntity>, AppError> {
+    load_risk_entities_with_source(path, RiskSource::Custom)
+}
+
 /// Loads risk entities from a JSON file so built in risk entities and analyst
 /// entities watchlists share the same internal representation.
-pub fn load_risk_entities(path: impl AsRef<Path>) -> Result<Vec<RiskEntity>, AppError> {
+fn load_risk_entities_with_source(
+    path: impl AsRef<Path>,
+    source: RiskSource,
+) -> Result<Vec<RiskEntity>, AppError> {
     let content = fs::read_to_string(path)?;
-    let mut entities: Vec<RiskEntity> = serde_json::from_str(&content)?;
+    let raw_entities: Vec<RawRiskEntity> = serde_json::from_str(&content)?;
 
-    for entity in &mut entities {
-        entity.address = normalize_ethereum_address(&entity.address);
-    }
+    let entities = raw_entities
+        .into_iter()
+        .map(|entity| RiskEntity {
+            address: normalize_ethereum_address(&entity.address),
+            category: entity.category,
+            source: source.clone(),
+            description: entity.description,
+        })
+        .collect();
 
     Ok(entities)
 }
@@ -78,8 +104,8 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_risk_entity_addresses_when_loading() {
-        let file_path = temp_file_path("risk_entities.json");
+    fn assigns_built_in_source_when_loading_built_in_risk_entities() {
+        let file_path = temp_file_path("built_in_risk_entities.json");
 
         let json = r#"
         [
@@ -93,15 +119,46 @@ mod tests {
 
         fs::write(&file_path, json).expect("test risk json should be written");
 
-        let entities =
-            load_risk_entities(&file_path).expect("risk entities should load successfully");
+        let entities = load_built_in_risk_entities(&file_path)
+            .expect("built-in risk entities should load successfully");
 
         assert_eq!(entities.len(), 1);
         assert_eq!(
             entities[0].address,
             "0xabcdef1234567890abcdef1234567890abcdef12"
         );
+        assert_eq!(entities[0].source, RiskSource::BuiltIn);
 
         fs::remove_file(&file_path).expect("test risk json should be removed");
+    }
+
+    #[test]
+    fn assigns_custom_source_when_loading_custom_risk_entities() {
+        let file_path = temp_file_path("custom_risk_entities.json");
+
+        let json = r#"
+        [
+            {
+                "address": "0xAbCdEf1234567890aBCdef1234567890abCDef12",
+                "category": "Other",
+                "description": "Analyst watchlist entry"
+            }
+        ]
+        "#;
+
+        fs::write(&file_path, json).expect("test custom risk json should be written");
+
+        let entities = load_custom_risk_entities(&file_path)
+            .expect("custom risk entities should load successfully");
+
+        assert_eq!(entities.len(), 1);
+        assert_eq!(
+            entities[0].address,
+            "0xabcdef1234567890abcdef1234567890abcdef12"
+        );
+        assert_eq!(entities[0].source, RiskSource::Custom);
+        assert_eq!(entities[0].category, RiskCategory::Other);
+
+        fs::remove_file(&file_path).expect("test custom risk json should be removed");
     }
 }

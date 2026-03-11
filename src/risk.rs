@@ -24,19 +24,21 @@ pub fn build_risk_index(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::RiskCategory;
+    use crate::models::{RiskCategory, RiskSource};
 
     #[test]
     fn custom_entities_override_built_in_entries_with_same_address() {
         let built_in = vec![RiskEntity {
             address: "0xabc".to_string(),
             category: RiskCategory::Mixer,
+            source: RiskSource::BuiltIn,
             description: "Known mixer wallet".to_string(),
         }];
 
         let custom = vec![RiskEntity {
             address: "0xabc".to_string(),
-            category: RiskCategory::Custom,
+            category: RiskCategory::Other,
+            source: RiskSource::Custom,
             description: "Analyst-linked address".to_string(),
         }];
 
@@ -48,7 +50,8 @@ mod tests {
             .get("0xabc")
             .expect("0xabc should exist in the risk index");
 
-        assert_eq!(entity.category, RiskCategory::Custom);
+        assert_eq!(entity.category, RiskCategory::Other);
+        assert_eq!(entity.source, RiskSource::Custom);
         assert_eq!(entity.description, "Analyst-linked address");
     }
 
@@ -57,12 +60,14 @@ mod tests {
         let built_in = vec![RiskEntity {
             address: "0xone".to_string(),
             category: RiskCategory::Sanctioned,
+            source: RiskSource::BuiltIn,
             description: "Known sanctioned wallet".to_string(),
         }];
 
         let custom = vec![RiskEntity {
             address: "0xtwo".to_string(),
-            category: RiskCategory::Custom,
+            category: RiskCategory::Other,
+            source: RiskSource::Custom,
             description: "Analyst watchlist entry".to_string(),
         }];
 

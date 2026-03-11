@@ -3,7 +3,9 @@ use clap::Parser;
 use blockchain_wallet_risk_analyser::analysis::build_findings;
 use blockchain_wallet_risk_analyser::cli::CliArgs;
 use blockchain_wallet_risk_analyser::errors::AppError;
-use blockchain_wallet_risk_analyser::loader::{load_risk_entities, load_transaction_edges};
+use blockchain_wallet_risk_analyser::loader::{
+    load_built_in_risk_entities, load_custom_risk_entities, load_transaction_edges,
+};
 use blockchain_wallet_risk_analyser::output::write_output;
 use blockchain_wallet_risk_analyser::report::build_risk_report;
 use blockchain_wallet_risk_analyser::risk::build_risk_index;
@@ -17,10 +19,10 @@ fn main() -> Result<(), AppError> {
 
     let graph_path = args.graph.as_deref().unwrap_or(DEFAULT_GRAPH_PATH);
     let edges = load_transaction_edges(graph_path)?;
-    let built_in_risk_entities = load_risk_entities(DEFAULT_RISK_LIST_PATH)?;
+    let built_in_risk_entities = load_built_in_risk_entities(DEFAULT_RISK_LIST_PATH)?;
 
     let custom_risk_entities = match args.custom_risk_list.as_deref() {
-        Some(path) => load_risk_entities(path)?,
+        Some(path) => load_custom_risk_entities(path)?,
         None => Vec::new(),
     };
 

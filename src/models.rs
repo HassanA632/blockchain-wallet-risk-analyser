@@ -11,6 +11,12 @@ pub enum RiskCategory {
     Sanctioned,
     Mixer,
     Suspect,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RiskSource {
+    BuiltIn,
     Custom,
 }
 
@@ -26,6 +32,7 @@ pub struct Finding {
     pub address: String,
     pub hop_distance: u8,
     pub category: RiskCategory,
+    pub source: RiskSource,
     pub risk_level: RiskLevel,
     pub description: String,
     pub path: Vec<String>,
@@ -41,6 +48,7 @@ pub struct TransactionEdge {
 pub struct RiskEntity {
     pub address: String,
     pub category: RiskCategory,
+    pub source: RiskSource,
     pub description: String,
 }
 

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use crate::models::{DiscoveredWallet, Finding, RiskCategory, RiskEntity, RiskLevel};
 
-/// Matches discovered wallets against known risk entities so graph traversal
-/// results can be converted into analyst facing risk findings.
+/// Matches discovered wallets against known risk wallets so graph traversal
+/// results can be converted into risk findings.
 pub fn build_findings(
     discovered_wallets: &[DiscoveredWallet],
     risk_index: &HashMap<String, RiskEntity>,
@@ -22,6 +22,7 @@ pub fn build_findings(
                 ),
                 description: risk_entity.description.clone(),
                 path: discovered_wallet.path.clone(),
+                source: risk_entity.source.clone(),
             });
         }
     }
@@ -30,7 +31,7 @@ pub fn build_findings(
 }
 
 /// Finds the risk entity record for a discovered wallet address so matching can
-/// enrich traversal results with risk metadata.
+/// enrich traversal results with risk data.
 fn find_risk_entity<'a>(
     address: &str,
     risk_index: &'a HashMap<String, RiskEntity>,
@@ -38,13 +39,13 @@ fn find_risk_entity<'a>(
     risk_index.get(address)
 }
 
-/// Assigns a risk level using hop distance and risk category so findings stay
+/// Assigns risk level using hop distance and risk category so findings stay
 /// explainable and follow a consistent severity model.
 fn determine_risk_level(hop_distance: u8, category: &RiskCategory) -> RiskLevel {
     match hop_distance {
         1 => match category {
             RiskCategory::Sanctioned => RiskLevel::High,
-            RiskCategory::Mixer | RiskCategory::Suspect | RiskCategory::Custom => RiskLevel::Medium,
+            RiskCategory::Mixer | RiskCategory::Suspect | RiskCategory::Other => RiskLevel::Medium,
         },
         2 => RiskLevel::Low,
         _ => RiskLevel::Low,
@@ -54,31 +55,36 @@ fn determine_risk_level(hop_distance: u8, category: &RiskCategory) -> RiskLevel 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DiscoveredWallet, RiskCategory, RiskEntity, RiskLevel};
+    use std::collections::HashMap;
+
+    use crate::models::{DiscoveredWallet, RiskCategory, RiskEntity, RiskLevel, RiskSource};
 
     fn sample_risk_index() -> HashMap<String, RiskEntity> {
         HashMap::from([
             (
-                "0xrisky1".to_string(),
+                "0x4444444444444444444444444444444444444444".to_string(),
                 RiskEntity {
-                    address: "0xrisky1".to_string(),
+                    address: "0x4444444444444444444444444444444444444444".to_string(),
                     category: RiskCategory::Sanctioned,
+                    source: RiskSource::BuiltIn,
                     description: "Known sanctioned wallet".to_string(),
                 },
             ),
             (
-                "0xrisky2".to_string(),
+                "0x5555555555555555555555555555555555555555".to_string(),
                 RiskEntity {
-                    address: "0xrisky2".to_string(),
+                    address: "0x5555555555555555555555555555555555555555".to_string(),
                     category: RiskCategory::Mixer,
+                    source: RiskSource::BuiltIn,
                     description: "Known mixer wallet".to_string(),
                 },
             ),
             (
-                "0xwatch1".to_string(),
+                "0x3333333333333333333333333333333333333333".to_string(),
                 RiskEntity {
-                    address: "0xwatch1".to_string(),
-                    category: RiskCategory::Custom,
+                    address: "0x3333333333333333333333333333333333333333".to_string(),
+                    category: RiskCategory::Other,
+                    source: RiskSource::Custom,
                     description: "Analyst watchlist entry".to_string(),
                 },
             ),
@@ -89,31 +95,38 @@ mod tests {
     fn builds_findings_for_matching_wallets_only() {
         let discovered_wallets = vec![
             DiscoveredWallet {
-                address: "0xrisky1".to_string(),
+                address: "0x4444444444444444444444444444444444444444".to_string(),
                 hop_distance: 2,
                 path: vec![
-                    "0xtarget".to_string(),
-                    "0xwallet1".to_string(),
-                    "0xrisky1".to_string(),
+                    "0x1111111111111111111111111111111111111111".to_string(),
+                    "0x2222222222222222222222222222222222222222".to_string(),
+                    "0x4444444444444444444444444444444444444444".to_string(),
                 ],
             },
             DiscoveredWallet {
-                address: "0xclean1".to_string(),
+                address: "0x6666666666666666666666666666666666666666".to_string(),
                 hop_distance: 1,
-                path: vec!["0xtarget".to_string(), "0xclean1".to_string()],
+                path: vec![
+                    "0x1111111111111111111111111111111111111111".to_string(),
+                    "0x6666666666666666666666666666666666666666".to_string(),
+                ],
             },
         ];
 
         let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].address, "0xrisky1");
+        assert_eq!(
+            findings[0].address,
+            "0x4444444444444444444444444444444444444444"
+        );
+        assert_eq!(findings[0].source, RiskSource::BuiltIn);
         assert_eq!(
             findings[0].path,
             vec![
-                "0xtarget".to_string(),
-                "0xwallet1".to_string(),
-                "0xrisky1".to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "0x2222222222222222222222222222222222222222".to_string(),
+                "0x4444444444444444444444444444444444444444".to_string(),
             ]
         );
     }
@@ -121,48 +134,49 @@ mod tests {
     #[test]
     fn assigns_high_risk_to_direct_sanctioned_wallets() {
         let discovered_wallets = vec![DiscoveredWallet {
-            address: "0xrisky1".to_string(),
+            address: "0x4444444444444444444444444444444444444444".to_string(),
             hop_distance: 1,
-            path: vec!["0xtarget".to_string(), "0xrisky1".to_string()],
+            path: vec![
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "0x4444444444444444444444444444444444444444".to_string(),
+            ],
         }];
 
         let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::High);
-        assert_eq!(
-            findings[0].path,
-            vec!["0xtarget".to_string(), "0xrisky1".to_string()]
-        );
+        assert_eq!(findings[0].source, RiskSource::BuiltIn);
     }
 
     #[test]
-    fn assigns_medium_risk_to_direct_custom_wallets() {
+    fn assigns_medium_risk_to_direct_other_wallets() {
         let discovered_wallets = vec![DiscoveredWallet {
-            address: "0xwatch1".to_string(),
+            address: "0x3333333333333333333333333333333333333333".to_string(),
             hop_distance: 1,
-            path: vec!["0xtarget".to_string(), "0xwatch1".to_string()],
+            path: vec![
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "0x3333333333333333333333333333333333333333".to_string(),
+            ],
         }];
 
         let findings = build_findings(&discovered_wallets, &sample_risk_index());
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::Medium);
-        assert_eq!(
-            findings[0].path,
-            vec!["0xtarget".to_string(), "0xwatch1".to_string()]
-        );
+        assert_eq!(findings[0].source, RiskSource::Custom);
+        assert_eq!(findings[0].category, RiskCategory::Other);
     }
 
     #[test]
     fn assigns_low_risk_to_two_hop_matches() {
         let discovered_wallets = vec![DiscoveredWallet {
-            address: "0xrisky2".to_string(),
+            address: "0x5555555555555555555555555555555555555555".to_string(),
             hop_distance: 2,
             path: vec![
-                "0xtarget".to_string(),
-                "0xwallet2".to_string(),
-                "0xrisky2".to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "0x3333333333333333333333333333333333333333".to_string(),
+                "0x5555555555555555555555555555555555555555".to_string(),
             ],
         }];
 
@@ -170,13 +184,6 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::Low);
-        assert_eq!(
-            findings[0].path,
-            vec![
-                "0xtarget".to_string(),
-                "0xwallet2".to_string(),
-                "0xrisky2".to_string(),
-            ]
-        );
+        assert_eq!(findings[0].source, RiskSource::BuiltIn);
     }
 }

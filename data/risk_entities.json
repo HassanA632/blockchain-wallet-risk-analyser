@@ -1,11 +1,11 @@
 [
   {
-    "address": "0xrisky1",
+    "address": "0x4444444444444444444444444444444444444444",
     "category": "Sanctioned",
     "description": "Known sanctioned wallet"
   },
   {
-    "address": "0xrisky2",
+    "address": "0x5555555555555555555555555555555555555555",
     "category": "Mixer",
     "description": "Known mixer wallet"
   }
