@@ -7,6 +7,7 @@ use blockchain_wallet_risk_analyser::loader::{
     load_built_in_risk_entities, load_custom_risk_entities, load_transaction_edges,
 };
 use blockchain_wallet_risk_analyser::output::write_output;
+use blockchain_wallet_risk_analyser::relationships::build_wallet_relationships;
 use blockchain_wallet_risk_analyser::report::build_risk_report;
 use blockchain_wallet_risk_analyser::risk::build_risk_index;
 use blockchain_wallet_risk_analyser::traversal::discover_wallets;
@@ -27,8 +28,8 @@ fn main() -> Result<(), AppError> {
     };
 
     let risk_index = build_risk_index(built_in_risk_entities, custom_risk_entities);
-
-    let discovered_wallets = discover_wallets(&args.wallet, args.hops, &edges);
+    let relationships = build_wallet_relationships(&edges);
+    let discovered_wallets = discover_wallets(&args.wallet, args.hops, &relationships);
     let findings = build_findings(&discovered_wallets, &risk_index);
 
     let report = build_risk_report(args.wallet, args.chain, args.hops, findings);

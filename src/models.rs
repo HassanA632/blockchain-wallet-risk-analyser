@@ -1,5 +1,6 @@
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 pub enum Chain {
@@ -61,4 +62,14 @@ pub struct DiscoveredWallet {
     pub address: String,
     pub hop_distance: u8,
     pub path: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WalletRelationship {
+    pub wallet_a: String,
+    pub wallet_b: String,
+    pub transaction_count: usize,
+    pub assets_seen: Vec<String>,
+    pub totals_by_asset: BTreeMap<String, f64>,
+    pub latest_timestamp: String,
 }

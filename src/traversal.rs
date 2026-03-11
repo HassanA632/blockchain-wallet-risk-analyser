@@ -1,20 +1,20 @@
 use std::collections::HashSet;
 
-use crate::models::{DiscoveredWallet, TransactionEdge};
+use crate::models::{DiscoveredWallet, WalletRelationship};
 
 /// Discovers wallets connected to a target address within the requested hop
 /// depth so later analysis can check them against risk intelligence.
 pub fn discover_wallets(
     target_wallet: &str,
     hop_depth: u8,
-    edges: &[TransactionEdge],
+    relationships: &[WalletRelationship],
 ) -> Vec<DiscoveredWallet> {
     let mut discovered = Vec::new();
     let mut seen_addresses = HashSet::new();
     let mut first_hop_wallets = Vec::new();
 
-    for edge in edges {
-        if let Some(neighbour) = connected_wallet(target_wallet, edge) {
+    for relationship in relationships {
+        if let Some(neighbour) = connected_wallet(target_wallet, relationship) {
             if seen_addresses.insert(neighbour.to_string()) {
                 let wallet = DiscoveredWallet {
                     address: neighbour.to_string(),
@@ -33,8 +33,8 @@ pub fn discover_wallets(
     }
 
     for first_hop_wallet in first_hop_wallets {
-        for edge in edges {
-            if let Some(neighbour) = connected_wallet(&first_hop_wallet, edge) {
+        for relationship in relationships {
+            if let Some(neighbour) = connected_wallet(&first_hop_wallet, relationship) {
                 if neighbour == target_wallet {
                     continue;
                 }
@@ -57,14 +57,14 @@ pub fn discover_wallets(
     discovered
 }
 
-/// Returns the wallet on the opposite side of an interaction edge when the
-/// given address is part of that edge, allowing traversal to treat edges as
-/// wallet-to-wallet connections.
-fn connected_wallet<'a>(address: &str, edge: &'a TransactionEdge) -> Option<&'a str> {
-    if edge.from_address == address {
-        Some(edge.to_address.as_str())
-    } else if edge.to_address == address {
-        Some(edge.from_address.as_str())
+/// Returns the wallet on the opposite side of a wallet relationship when the
+/// given address is part of that relationship allowing traversal to treat it
+/// as a wallet-to-wallet connection.
+fn connected_wallet<'a>(address: &str, relationship: &'a WalletRelationship) -> Option<&'a str> {
+    if relationship.wallet_a == address {
+        Some(relationship.wallet_b.as_str())
+    } else if relationship.wallet_b == address {
+        Some(relationship.wallet_a.as_str())
     } else {
         None
     }
@@ -74,9 +74,10 @@ fn connected_wallet<'a>(address: &str, edge: &'a TransactionEdge) -> Option<&'a 
 mod tests {
     use super::*;
     use crate::models::TransactionEdge;
+    use crate::relationships::build_wallet_relationships;
 
-    fn sample_edges() -> Vec<TransactionEdge> {
-        vec![
+    fn sample_relationships() -> Vec<WalletRelationship> {
+        let edges = vec![
             TransactionEdge {
                 from_address: "0x1111111111111111111111111111111111111111".to_string(),
                 to_address: "0x2222222222222222222222222222222222222222".to_string(),
@@ -113,7 +114,9 @@ mod tests {
                 amount: "1200.00".to_string(),
                 timestamp: "2026-03-11T10:15:00Z".to_string(),
             },
-        ]
+        ];
+
+        build_wallet_relationships(&edges)
     }
 
     #[test]
@@ -121,7 +124,7 @@ mod tests {
         let discovered = discover_wallets(
             "0x1111111111111111111111111111111111111111",
             1,
-            &sample_edges(),
+            &sample_relationships(),
         );
 
         assert_eq!(discovered.len(), 2);
@@ -169,7 +172,7 @@ mod tests {
         let discovered = discover_wallets(
             "0x1111111111111111111111111111111111111111",
             2,
-            &sample_edges(),
+            &sample_relationships(),
         );
 
         assert_eq!(discovered.len(), 4);
@@ -238,7 +241,13 @@ mod tests {
             },
         ];
 
-        let discovered = discover_wallets("0x1111111111111111111111111111111111111111", 2, &edges);
+        let relationships = build_wallet_relationships(&edges);
+
+        let discovered = discover_wallets(
+            "0x1111111111111111111111111111111111111111",
+            2,
+            &relationships,
+        );
 
         assert!(
             discovered
