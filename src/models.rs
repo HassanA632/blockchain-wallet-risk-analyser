@@ -38,6 +38,7 @@ pub struct Finding {
     pub description: String,
     pub path: Vec<String>,
     pub relationship_path: Vec<RelationshipStep>,
+    pub connection_summary: ConnectionSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +86,20 @@ pub struct RelationshipStep {
     pub to_wallet: String,
     pub transaction_count: usize,
     pub assets_seen: Vec<String>,
-    pub totals_by_asset: BTreeMap<String, f64>,
+    pub latest_timestamp: String,
+    pub sent_transaction_count: usize,
+    pub received_transaction_count: usize,
+    pub sent_totals_by_asset: BTreeMap<String, f64>,
+    pub received_totals_by_asset: BTreeMap<String, f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectionSummary {
+    pub counterparty_wallet: String,
+    pub sent_transaction_count: usize,
+    pub received_transaction_count: usize,
+    pub sent_totals_by_asset: BTreeMap<String, f64>,
+    pub received_totals_by_asset: BTreeMap<String, f64>,
+    pub assets_seen: Vec<String>,
     pub latest_timestamp: String,
 }

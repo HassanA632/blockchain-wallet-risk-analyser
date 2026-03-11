@@ -90,7 +90,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::models::{Finding, RelationshipStep, RiskCategory, RiskLevel, RiskSource};
+    use crate::models::{
+        ConnectionSummary, Finding, RelationshipStep, RiskCategory, RiskLevel, RiskSource,
+    };
 
     fn sample_findings() -> Vec<Finding> {
         vec![
@@ -107,9 +109,21 @@ mod tests {
                     to_wallet: "0xone".to_string(),
                     transaction_count: 1,
                     assets_seen: vec!["ETH".to_string()],
-                    totals_by_asset: BTreeMap::from([("ETH".to_string(), 1.0)]),
                     latest_timestamp: "2026-03-11T10:00:00Z".to_string(),
+                    sent_transaction_count: 1,
+                    received_transaction_count: 0,
+                    sent_totals_by_asset: BTreeMap::from([("ETH".to_string(), 1.0)]),
+                    received_totals_by_asset: BTreeMap::new(),
                 }],
+                connection_summary: ConnectionSummary {
+                    counterparty_wallet: "0xtarget".to_string(),
+                    sent_transaction_count: 0,
+                    received_transaction_count: 1,
+                    sent_totals_by_asset: BTreeMap::new(),
+                    received_totals_by_asset: BTreeMap::from([("ETH".to_string(), 1.0)]),
+                    assets_seen: vec!["ETH".to_string()],
+                    latest_timestamp: "2026-03-11T10:00:00Z".to_string(),
+                },
             },
             Finding {
                 address: "0xtwo".to_string(),
@@ -124,9 +138,21 @@ mod tests {
                     to_wallet: "0xtwo".to_string(),
                     transaction_count: 1,
                     assets_seen: vec!["ETH".to_string()],
-                    totals_by_asset: BTreeMap::from([("ETH".to_string(), 2.0)]),
                     latest_timestamp: "2026-03-11T10:10:00Z".to_string(),
+                    sent_transaction_count: 1,
+                    received_transaction_count: 0,
+                    sent_totals_by_asset: BTreeMap::from([("ETH".to_string(), 2.0)]),
+                    received_totals_by_asset: BTreeMap::new(),
                 }],
+                connection_summary: ConnectionSummary {
+                    counterparty_wallet: "0xtarget".to_string(),
+                    sent_transaction_count: 0,
+                    received_transaction_count: 1,
+                    sent_totals_by_asset: BTreeMap::new(),
+                    received_totals_by_asset: BTreeMap::from([("ETH".to_string(), 2.0)]),
+                    assets_seen: vec!["ETH".to_string()],
+                    latest_timestamp: "2026-03-11T10:10:00Z".to_string(),
+                },
             },
             Finding {
                 address: "0xthree".to_string(),
@@ -146,18 +172,33 @@ mod tests {
                         to_wallet: "0xwallet1".to_string(),
                         transaction_count: 1,
                         assets_seen: vec!["USDC".to_string()],
-                        totals_by_asset: BTreeMap::from([("USDC".to_string(), 500.0)]),
                         latest_timestamp: "2026-03-11T10:05:00Z".to_string(),
+                        sent_transaction_count: 1,
+                        received_transaction_count: 0,
+                        sent_totals_by_asset: BTreeMap::from([("USDC".to_string(), 500.0)]),
+                        received_totals_by_asset: BTreeMap::new(),
                     },
                     RelationshipStep {
                         from_wallet: "0xwallet1".to_string(),
                         to_wallet: "0xthree".to_string(),
                         transaction_count: 1,
                         assets_seen: vec!["DAI".to_string()],
-                        totals_by_asset: BTreeMap::from([("DAI".to_string(), 1200.0)]),
                         latest_timestamp: "2026-03-11T10:15:00Z".to_string(),
+                        sent_transaction_count: 1,
+                        received_transaction_count: 0,
+                        sent_totals_by_asset: BTreeMap::from([("DAI".to_string(), 1200.0)]),
+                        received_totals_by_asset: BTreeMap::new(),
                     },
                 ],
+                connection_summary: ConnectionSummary {
+                    counterparty_wallet: "0xwallet1".to_string(),
+                    sent_transaction_count: 0,
+                    received_transaction_count: 1,
+                    sent_totals_by_asset: BTreeMap::new(),
+                    received_totals_by_asset: BTreeMap::from([("DAI".to_string(), 1200.0)]),
+                    assets_seen: vec!["DAI".to_string()],
+                    latest_timestamp: "2026-03-11T10:15:00Z".to_string(),
+                },
             },
         ]
     }

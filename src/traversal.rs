@@ -84,26 +84,37 @@ fn relationship_step(
     to_wallet: &str,
     relationship: &WalletRelationship,
 ) -> RelationshipStep {
-    let (transaction_count, totals_by_asset) =
-        if relationship.wallet_a == from_wallet && relationship.wallet_b == to_wallet {
-            (
-                relationship.a_to_b_transaction_count,
-                relationship.a_to_b_totals_by_asset.clone(),
-            )
-        } else {
-            (
-                relationship.b_to_a_transaction_count,
-                relationship.b_to_a_totals_by_asset.clone(),
-            )
-        };
+    let (
+        sent_transaction_count,
+        received_transaction_count,
+        sent_totals_by_asset,
+        received_totals_by_asset,
+    ) = if relationship.wallet_a == from_wallet && relationship.wallet_b == to_wallet {
+        (
+            relationship.a_to_b_transaction_count,
+            relationship.b_to_a_transaction_count,
+            relationship.a_to_b_totals_by_asset.clone(),
+            relationship.b_to_a_totals_by_asset.clone(),
+        )
+    } else {
+        (
+            relationship.b_to_a_transaction_count,
+            relationship.a_to_b_transaction_count,
+            relationship.b_to_a_totals_by_asset.clone(),
+            relationship.a_to_b_totals_by_asset.clone(),
+        )
+    };
 
     RelationshipStep {
         from_wallet: from_wallet.to_string(),
         to_wallet: to_wallet.to_string(),
-        transaction_count,
+        transaction_count: relationship.transaction_count,
         assets_seen: relationship.assets_seen.clone(),
-        totals_by_asset,
         latest_timestamp: relationship.latest_timestamp.clone(),
+        sent_transaction_count,
+        received_transaction_count,
+        sent_totals_by_asset,
+        received_totals_by_asset,
     }
 }
 
@@ -353,10 +364,18 @@ mod tests {
             wallet1.relationship_path[0].to_wallet,
             "0x2222222222222222222222222222222222222222"
         );
-        assert_eq!(wallet1.relationship_path[0].transaction_count, 1);
+        assert_eq!(wallet1.relationship_path[0].transaction_count, 2);
+        assert_eq!(wallet1.relationship_path[0].sent_transaction_count, 1);
+        assert_eq!(wallet1.relationship_path[0].received_transaction_count, 1);
         assert_eq!(
-            wallet1.relationship_path[0].totals_by_asset.get("ETH"),
+            wallet1.relationship_path[0].sent_totals_by_asset.get("ETH"),
             Some(&1.0)
+        );
+        assert_eq!(
+            wallet1.relationship_path[0]
+                .received_totals_by_asset
+                .get("ETH"),
+            Some(&0.5)
         );
     }
 }
