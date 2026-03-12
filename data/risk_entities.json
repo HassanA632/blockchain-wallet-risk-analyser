@@ -8,5 +8,10 @@
     "address": "0x5555555555555555555555555555555555555555",
     "category": "Mixer",
     "description": "Known mixer wallet"
+  },
+  {
+    "address": "0x7777777777777777777777777777777777777777",
+    "category": "Mixer",
+    "description": "Known mixer wallet"
   }
 ]

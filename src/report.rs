@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::{Chain, Finding, RiskLevel};
+use crate::models::{Chain, Finding, RiskCategory, RiskLevel};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReportSummary {
@@ -11,6 +11,10 @@ pub struct ReportSummary {
     pub low_risk_count: usize,
     pub medium_risk_count: usize,
     pub high_risk_count: usize,
+    pub sanctioned_count: usize,
+    pub mixer_count: usize,
+    pub suspect_count: usize,
+    pub other_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,6 +59,26 @@ pub fn build_summary(findings: &[Finding]) -> ReportSummary {
         .filter(|finding| finding.risk_level == RiskLevel::High)
         .count();
 
+    let sanctioned_count = findings
+        .iter()
+        .filter(|finding| finding.category == RiskCategory::Sanctioned)
+        .count();
+
+    let mixer_count = findings
+        .iter()
+        .filter(|finding| finding.category == RiskCategory::Mixer)
+        .count();
+
+    let suspect_count = findings
+        .iter()
+        .filter(|finding| finding.category == RiskCategory::Suspect)
+        .count();
+
+    let other_count = findings
+        .iter()
+        .filter(|finding| finding.category == RiskCategory::Other)
+        .count();
+
     ReportSummary {
         risky_wallets_found: findings.len(),
         highest_risk_level,
@@ -63,6 +87,10 @@ pub fn build_summary(findings: &[Finding]) -> ReportSummary {
         low_risk_count,
         medium_risk_count,
         high_risk_count,
+        sanctioned_count,
+        mixer_count,
+        suspect_count,
+        other_count,
     }
 }
 
@@ -90,9 +118,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::models::{
-        ConnectionSummary, Finding, RelationshipStep, RiskCategory, RiskLevel, RiskSource,
-    };
+    use crate::models::{Finding, RelationshipStep, RiskCategory, RiskLevel, RiskSource};
 
     fn sample_findings() -> Vec<Finding> {
         vec![
@@ -115,15 +141,6 @@ mod tests {
                     sent_totals_by_asset: BTreeMap::from([("ETH".to_string(), 1.0)]),
                     received_totals_by_asset: BTreeMap::new(),
                 }],
-                connection_summary: ConnectionSummary {
-                    counterparty_wallet: "0xtarget".to_string(),
-                    sent_transaction_count: 0,
-                    received_transaction_count: 1,
-                    sent_totals_by_asset: BTreeMap::new(),
-                    received_totals_by_asset: BTreeMap::from([("ETH".to_string(), 1.0)]),
-                    assets_seen: vec!["ETH".to_string()],
-                    latest_timestamp: "2026-03-11T10:00:00Z".to_string(),
-                },
             },
             Finding {
                 address: "0xtwo".to_string(),
@@ -144,15 +161,6 @@ mod tests {
                     sent_totals_by_asset: BTreeMap::from([("ETH".to_string(), 2.0)]),
                     received_totals_by_asset: BTreeMap::new(),
                 }],
-                connection_summary: ConnectionSummary {
-                    counterparty_wallet: "0xtarget".to_string(),
-                    sent_transaction_count: 0,
-                    received_transaction_count: 1,
-                    sent_totals_by_asset: BTreeMap::new(),
-                    received_totals_by_asset: BTreeMap::from([("ETH".to_string(), 2.0)]),
-                    assets_seen: vec!["ETH".to_string()],
-                    latest_timestamp: "2026-03-11T10:10:00Z".to_string(),
-                },
             },
             Finding {
                 address: "0xthree".to_string(),
@@ -190,15 +198,6 @@ mod tests {
                         received_totals_by_asset: BTreeMap::new(),
                     },
                 ],
-                connection_summary: ConnectionSummary {
-                    counterparty_wallet: "0xwallet1".to_string(),
-                    sent_transaction_count: 0,
-                    received_transaction_count: 1,
-                    sent_totals_by_asset: BTreeMap::new(),
-                    received_totals_by_asset: BTreeMap::from([("DAI".to_string(), 1200.0)]),
-                    assets_seen: vec!["DAI".to_string()],
-                    latest_timestamp: "2026-03-11T10:15:00Z".to_string(),
-                },
             },
         ]
     }
@@ -214,6 +213,10 @@ mod tests {
         assert_eq!(summary.low_risk_count, 1);
         assert_eq!(summary.medium_risk_count, 1);
         assert_eq!(summary.high_risk_count, 1);
+        assert_eq!(summary.sanctioned_count, 1);
+        assert_eq!(summary.mixer_count, 1);
+        assert_eq!(summary.suspect_count, 0);
+        assert_eq!(summary.other_count, 1);
     }
 
     #[test]
@@ -227,5 +230,9 @@ mod tests {
         assert_eq!(summary.low_risk_count, 0);
         assert_eq!(summary.medium_risk_count, 0);
         assert_eq!(summary.high_risk_count, 0);
+        assert_eq!(summary.sanctioned_count, 0);
+        assert_eq!(summary.mixer_count, 0);
+        assert_eq!(summary.suspect_count, 0);
+        assert_eq!(summary.other_count, 0);
     }
 }

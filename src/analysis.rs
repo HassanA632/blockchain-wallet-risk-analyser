@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::models::{
-    ConnectionSummary, DiscoveredWallet, Finding, RelationshipStep, RiskCategory, RiskEntity,
-    RiskLevel,
-};
+use crate::models::{DiscoveredWallet, Finding, RiskCategory, RiskEntity, RiskLevel};
 
 /// Matches discovered wallets against a risk index so traversal results can be
 /// converted into analyst-facing findings with deterministic risk metadata.
@@ -27,7 +24,6 @@ pub fn build_findings(
                 description: risk_entity.description.clone(),
                 path: discovered_wallet.path.clone(),
                 relationship_path: discovered_wallet.relationship_path.clone(),
-                connection_summary: build_connection_summary(discovered_wallet),
             });
         }
     }
@@ -54,25 +50,6 @@ fn determine_risk_level(hop_distance: u8, category: &RiskCategory) -> RiskLevel 
         },
         2 => RiskLevel::Low,
         _ => RiskLevel::Low,
-    }
-}
-
-/// Builds a connection summary from the final relationship step so each
-/// finding exposes the direct interaction evidence for the risky wallet.
-fn build_connection_summary(discovered_wallet: &DiscoveredWallet) -> ConnectionSummary {
-    let final_step = discovered_wallet
-        .relationship_path
-        .last()
-        .expect("discovered wallets should always include at least one relationship step");
-
-    ConnectionSummary {
-        counterparty_wallet: final_step.from_wallet.clone(),
-        sent_transaction_count: final_step.received_transaction_count,
-        received_transaction_count: final_step.sent_transaction_count,
-        sent_totals_by_asset: final_step.received_totals_by_asset.clone(),
-        received_totals_by_asset: final_step.sent_totals_by_asset.clone(),
-        assets_seen: final_step.assets_seen.clone(),
-        latest_timestamp: final_step.latest_timestamp.clone(),
     }
 }
 
@@ -182,19 +159,22 @@ mod tests {
             "0x4444444444444444444444444444444444444444"
         );
         assert_eq!(findings[0].source, RiskSource::BuiltIn);
+        assert_eq!(
+            findings[0].path,
+            vec![
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "0x2222222222222222222222222222222222222222".to_string(),
+                "0x4444444444444444444444444444444444444444".to_string(),
+            ]
+        );
         assert_eq!(findings[0].relationship_path.len(), 2);
         assert_eq!(
-            findings[0].connection_summary.counterparty_wallet,
-            "0x2222222222222222222222222222222222222222"
+            findings[0].relationship_path[0].from_wallet,
+            "0x1111111111111111111111111111111111111111"
         );
-        assert_eq!(findings[0].connection_summary.sent_transaction_count, 0);
-        assert_eq!(findings[0].connection_summary.received_transaction_count, 1);
         assert_eq!(
-            findings[0]
-                .connection_summary
-                .received_totals_by_asset
-                .get("ETH"),
-            Some(&0.75)
+            findings[0].relationship_path[1].to_wallet,
+            "0x4444444444444444444444444444444444444444"
         );
     }
 
@@ -225,12 +205,15 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].risk_level, RiskLevel::High);
         assert_eq!(findings[0].source, RiskSource::BuiltIn);
+        assert_eq!(findings[0].relationship_path.len(), 1);
         assert_eq!(
-            findings[0].connection_summary.counterparty_wallet,
+            findings[0].relationship_path[0].from_wallet,
             "0x1111111111111111111111111111111111111111"
         );
-        assert_eq!(findings[0].connection_summary.sent_transaction_count, 0);
-        assert_eq!(findings[0].connection_summary.received_transaction_count, 1);
+        assert_eq!(
+            findings[0].relationship_path[0].to_wallet,
+            "0x4444444444444444444444444444444444444444"
+        );
     }
 
     #[test]
@@ -262,9 +245,8 @@ mod tests {
         assert_eq!(findings[0].source, RiskSource::Custom);
         assert_eq!(findings[0].category, RiskCategory::Other);
         assert_eq!(
-            findings[0]
-                .connection_summary
-                .received_totals_by_asset
+            findings[0].relationship_path[0]
+                .sent_totals_by_asset
                 .get("USDC"),
             Some(&500.0)
         );
@@ -312,17 +294,12 @@ mod tests {
         assert_eq!(findings[0].risk_level, RiskLevel::Low);
         assert_eq!(findings[0].source, RiskSource::BuiltIn);
         assert_eq!(
-            findings[0].connection_summary.counterparty_wallet,
+            findings[0].relationship_path[0].to_wallet,
             "0x3333333333333333333333333333333333333333"
         );
-        assert_eq!(findings[0].connection_summary.sent_transaction_count, 0);
-        assert_eq!(findings[0].connection_summary.received_transaction_count, 1);
         assert_eq!(
-            findings[0]
-                .connection_summary
-                .received_totals_by_asset
-                .get("DAI"),
-            Some(&1200.0)
+            findings[0].relationship_path[1].to_wallet,
+            "0x5555555555555555555555555555555555555555"
         );
     }
 }
