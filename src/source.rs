@@ -9,6 +9,7 @@ use crate::models::TransactionEdge;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransactionEdgeSource {
     LocalFile { path: PathBuf },
+    Ethereum { wallet: String },
 }
 
 /// Loads transaction edges from the selected source so later providers can plug
@@ -18,6 +19,9 @@ pub fn load_edges_from_source(
 ) -> Result<Vec<TransactionEdge>, AppError> {
     match source {
         TransactionEdgeSource::LocalFile { path } => load_transaction_edges(path),
+        TransactionEdgeSource::Ethereum { wallet } => Err(AppError::Source(format!(
+            "Ethereum source is not implemented yet for wallet {wallet}"
+        ))),
     }
 }
 
@@ -72,5 +76,24 @@ mod tests {
         );
 
         fs::remove_file(&file_path).expect("test source json should be removed");
+    }
+
+    #[test]
+    fn returns_stub_error_for_unimplemented_ethereum_source() {
+        let source = TransactionEdgeSource::Ethereum {
+            wallet: "0x1111111111111111111111111111111111111111".to_string(),
+        };
+
+        let result = load_edges_from_source(&source);
+
+        match result {
+            Err(AppError::Source(message)) => {
+                assert_eq!(
+                    message,
+                    "Ethereum source is not implemented yet for wallet 0x1111111111111111111111111111111111111111"
+                );
+            }
+            _ => panic!("expected source error for unimplemented ethereum source"),
+        }
     }
 }
