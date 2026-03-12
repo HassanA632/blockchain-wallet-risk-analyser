@@ -8,5 +8,6 @@ pub mod output;
 pub mod relationships;
 pub mod report;
 pub mod risk;
+pub mod source;
 pub mod traversal;
 pub mod validation;
