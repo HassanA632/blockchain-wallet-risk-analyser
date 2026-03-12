@@ -3,6 +3,7 @@ use clap::Parser;
 use blockchain_wallet_risk_analyser::analysis::build_findings;
 use blockchain_wallet_risk_analyser::cli::CliArgs;
 use blockchain_wallet_risk_analyser::errors::AppError;
+use blockchain_wallet_risk_analyser::filter::filter_edges_by_date_range;
 use blockchain_wallet_risk_analyser::loader::{
     load_built_in_risk_entities, load_custom_risk_entities, load_transaction_edges,
 };
@@ -20,6 +21,9 @@ fn main() -> Result<(), AppError> {
 
     let graph_path = args.graph.as_deref().unwrap_or(DEFAULT_GRAPH_PATH);
     let edges = load_transaction_edges(graph_path)?;
+    let filtered_edges =
+        filter_edges_by_date_range(&edges, args.from_date.as_deref(), args.to_date.as_deref());
+
     let built_in_risk_entities = load_built_in_risk_entities(DEFAULT_RISK_LIST_PATH)?;
 
     let custom_risk_entities = match args.custom_risk_list.as_deref() {
@@ -28,7 +32,7 @@ fn main() -> Result<(), AppError> {
     };
 
     let risk_index = build_risk_index(built_in_risk_entities, custom_risk_entities);
-    let relationships = build_wallet_relationships(&edges);
+    let relationships = build_wallet_relationships(&filtered_edges);
     let discovered_wallets = discover_wallets(&args.wallet, args.hops, &relationships);
     let findings = build_findings(&discovered_wallets, &risk_index);
 

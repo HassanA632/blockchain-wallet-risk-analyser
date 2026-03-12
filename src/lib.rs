@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod cli;
 pub mod errors;
+pub mod filter;
 pub mod loader;
 pub mod models;
 pub mod output;

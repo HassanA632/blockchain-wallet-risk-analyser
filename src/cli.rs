@@ -25,4 +25,10 @@ pub struct CliArgs {
 
     #[arg(long)]
     pub output: Option<String>,
+
+    #[arg(long = "from-date")]
+    pub from_date: Option<String>,
+
+    #[arg(long = "to-date")]
+    pub to_date: Option<String>,
 }
