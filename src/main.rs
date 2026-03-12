@@ -8,6 +8,7 @@ use blockchain_wallet_risk_analyser::filter::filter_edges_by_date_range;
 use blockchain_wallet_risk_analyser::loader::{
     load_built_in_risk_entities, load_custom_risk_entities,
 };
+use blockchain_wallet_risk_analyser::models::DataSource;
 use blockchain_wallet_risk_analyser::output::write_output;
 use blockchain_wallet_risk_analyser::relationships::build_wallet_relationships;
 use blockchain_wallet_risk_analyser::report::build_risk_report;
@@ -21,13 +22,21 @@ const DEFAULT_RISK_LIST_PATH: &str = "data/risk_entities.json";
 fn main() -> Result<(), AppError> {
     let args = CliArgs::parse();
     args.validate().map_err(AppError::Cli)?;
-    let graph_path = args.graph.as_deref().unwrap_or(DEFAULT_GRAPH_PATH);
 
-    let edge_source = TransactionEdgeSource::LocalFile {
-        path: PathBuf::from(graph_path),
+    let edge_source = match args.source {
+        DataSource::Local => {
+            let graph_path = args.graph.as_deref().unwrap_or(DEFAULT_GRAPH_PATH);
+
+            TransactionEdgeSource::LocalFile {
+                path: PathBuf::from(graph_path),
+            }
+        }
+        DataSource::Ethereum => TransactionEdgeSource::Ethereum {
+            wallet: args.wallet.clone(),
+        },
     };
-    let edges = load_edges_from_source(&edge_source)?;
 
+    let edges = load_edges_from_source(&edge_source)?;
     let filtered_edges =
         filter_edges_by_date_range(&edges, args.from_date.as_deref(), args.to_date.as_deref());
 

@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use crate::models::Chain;
+use crate::models::{Chain, DataSource};
 use crate::validation::{validate_date_range, validate_ethereum_address, validate_utc_timestamp};
 
 /// Defines the command-line inputs required to run a wallet exposure analysis
@@ -16,6 +16,9 @@ pub struct CliArgs {
 
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=2))]
     pub hops: u8,
+
+    #[arg(long, default_value = "local")]
+    pub source: DataSource,
 
     #[arg(long)]
     pub graph: Option<String>,

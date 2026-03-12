@@ -91,3 +91,9 @@ pub struct RelationshipStep {
     pub sent_totals_by_asset: BTreeMap<String, f64>,
     pub received_totals_by_asset: BTreeMap<String, f64>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+pub enum DataSource {
+    Local,
+    Ethereum,
+}
