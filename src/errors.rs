@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 pub enum AppError {
     Io(std::io::Error),
     Json(serde_json::Error),
+    Cli(String),
 }
 
 impl Display for AppError {
@@ -11,6 +12,7 @@ impl Display for AppError {
         match self {
             Self::Io(error) => write!(f, "I/O error: {error}"),
             Self::Json(error) => write!(f, "JSON error: {error}"),
+            Self::Cli(error) => write!(f, "CLI error: {error}"),
         }
     }
 }

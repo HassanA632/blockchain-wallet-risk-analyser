@@ -18,6 +18,7 @@ const DEFAULT_RISK_LIST_PATH: &str = "data/risk_entities.json";
 
 fn main() -> Result<(), AppError> {
     let args = CliArgs::parse();
+    args.validate().map_err(AppError::Cli)?;
 
     let graph_path = args.graph.as_deref().unwrap_or(DEFAULT_GRAPH_PATH);
     let edges = load_transaction_edges(graph_path)?;
