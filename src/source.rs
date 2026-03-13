@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::errors::AppError;
+use crate::ethereum::load_transaction_edges_from_ethereum;
 use crate::loader::load_transaction_edges;
 use crate::models::TransactionEdge;
 
@@ -12,16 +13,13 @@ pub enum TransactionEdgeSource {
     Ethereum { wallet: String },
 }
 
-/// Loads transaction edges from the selected source so later providers can plug
-/// into the same analysis pipeline without changing downstream logic.
+/// Loads transaction data from the chosen source.
 pub fn load_edges_from_source(
     source: &TransactionEdgeSource,
 ) -> Result<Vec<TransactionEdge>, AppError> {
     match source {
         TransactionEdgeSource::LocalFile { path } => load_transaction_edges(path),
-        TransactionEdgeSource::Ethereum { wallet } => Err(AppError::Source(format!(
-            "Ethereum source is not implemented yet for wallet {wallet}"
-        ))),
+        TransactionEdgeSource::Ethereum { wallet } => load_transaction_edges_from_ethereum(wallet),
     }
 }
 
