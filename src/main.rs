@@ -19,7 +19,8 @@ use blockchain_wallet_risk_analyser::traversal::discover_wallets;
 const DEFAULT_GRAPH_PATH: &str = "data/sample_graph.json";
 const DEFAULT_RISK_LIST_PATH: &str = "data/risk_entities.json";
 
-fn main() -> Result<(), AppError> {
+#[tokio::main]
+async fn main() -> Result<(), AppError> {
     let args = CliArgs::parse();
     args.validate().map_err(AppError::Cli)?;
 
@@ -36,7 +37,7 @@ fn main() -> Result<(), AppError> {
         },
     };
 
-    let edges = load_edges_from_source(&edge_source)?;
+    let edges = load_edges_from_source(&edge_source).await?;
     let filtered_edges =
         filter_edges_by_date_range(&edges, args.from_date.as_deref(), args.to_date.as_deref());
 
