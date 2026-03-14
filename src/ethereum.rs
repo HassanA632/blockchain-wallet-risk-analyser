@@ -1,4 +1,7 @@
-use std::{collections::HashSet, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use alloy::{
     primitives::{Address, B256, U256, b256},
@@ -80,10 +83,12 @@ pub async fn load_transaction_edges_from_ethereum(
         all_logs.extend(incoming_logs);
     }
 
+    let timestamp_by_block = build_block_timestamp_map(&provider, &all_logs).await?;
+
     let mut edges = Vec::new();
 
     for log in all_logs {
-        if let Some(edge) = map_transfer_log_to_edge(log, wallet) {
+        if let Some(edge) = map_transfer_log_to_edge(log, wallet, &timestamp_by_block) {
             edges.push(edge);
         }
     }
@@ -190,11 +195,65 @@ async fn fetch_wallet_transfer_logs(
     })
 }
 
-/// Maps a matching ERC-20 transfer log into the internal transaction-edge shape.
+/// Builds a lookup map of block number to UTC timestamp string so
+/// live Ethereum edges can carry real block timestamp.
+async fn build_block_timestamp_map(
+    provider: &impl Provider,
+    logs: &[Log],
+) -> Result<HashMap<u64, String>, AppError> {
+    let mut unique_block_numbers = HashSet::new();
+
+    for log in logs {
+        if let Some(block_number) = log.block_number {
+            unique_block_numbers.insert(block_number);
+        }
+    }
+
+    let mut timestamp_by_block = HashMap::new();
+
+    for block_number in unique_block_numbers {
+        let block = provider
+            .get_block_by_number(BlockNumberOrTag::Number(block_number))
+            .await
+            .map_err(|error| {
+                AppError::Source(format!(
+                    "failed to fetch block {block_number} for timestamp enrichment: {error}"
+                ))
+            })?
+            .ok_or_else(|| {
+                AppError::Source(format!(
+                    "block {block_number} was not returned during timestamp enrichment"
+                ))
+            })?;
+
+        let timestamp = format_block_timestamp(block.header.timestamp);
+
+        timestamp_by_block.insert(block_number, timestamp);
+    }
+
+    Ok(timestamp_by_block)
+}
+
+/// Formats a Unix block timestamp into a UTC string suitable for filtering.
 ///
-/// This first version keeps the token contract address as the asset identifier
-/// and uses a placeholder timestamp until block timestamp enrichment is added.
-fn map_transfer_log_to_edge(log: Log, wallet: Address) -> Option<TransactionEdge> {
+/// This keeps the timestamp stable and comparable even before a full datetime
+/// library is introduced for richer formatting.
+fn format_block_timestamp(timestamp_seconds: u64) -> String {
+    use chrono::{TimeZone, Utc};
+
+    Utc.timestamp_opt(timestamp_seconds as i64, 0)
+        .single()
+        .expect("block timestamp should convert to a valid UTC datetime")
+        .format("%Y-%m-%dT%H:%M:%SZ")
+        .to_string()
+}
+
+/// Maps a matching ERC-20 transfer log into the internal transaction-edge shape.
+fn map_transfer_log_to_edge(
+    log: Log,
+    wallet: Address,
+    timestamp_by_block: &HashMap<u64, String>,
+) -> Option<TransactionEdge> {
     let topics = log.topics();
 
     if topics.len() < 3 {
@@ -211,6 +270,8 @@ fn map_transfer_log_to_edge(log: Log, wallet: Address) -> Option<TransactionEdge
     let tx_hash = log.transaction_hash?;
     let token_address = log.address();
     let amount = decode_transfer_value(log.data().data.as_ref())?;
+    let block_number = log.block_number?;
+    let timestamp = timestamp_by_block.get(&block_number)?.clone();
 
     Some(TransactionEdge {
         from_address: format!("{from_address:#x}"),
@@ -218,7 +279,7 @@ fn map_transfer_log_to_edge(log: Log, wallet: Address) -> Option<TransactionEdge
         tx_hash: format!("{tx_hash:#x}"),
         asset: format!("{token_address:#x}"),
         amount,
-        timestamp: "unknown".to_string(),
+        timestamp,
     })
 }
 
@@ -309,6 +370,13 @@ mod tests {
     }
 
     #[test]
+    fn formats_block_timestamp_as_utc_string() {
+        let formatted = format_block_timestamp(1_700_000_000);
+
+        assert_eq!(formatted, "2023-11-14T22:13:20Z");
+    }
+
+    #[test]
     fn converts_address_to_topic() {
         let address =
             Address::from_str("0x1111111111111111111111111111111111111111").expect("valid address");
@@ -352,7 +420,7 @@ mod tests {
                 tx_hash: "0xtx".to_string(),
                 asset: "0xtoken".to_string(),
                 amount: "100".to_string(),
-                timestamp: "unknown".to_string(),
+                timestamp: "2026-03-14T12:00:00Z".to_string(),
             },
             TransactionEdge {
                 from_address: "0xaaa".to_string(),
@@ -360,7 +428,7 @@ mod tests {
                 tx_hash: "0xtx".to_string(),
                 asset: "0xtoken".to_string(),
                 amount: "100".to_string(),
-                timestamp: "unknown".to_string(),
+                timestamp: "2026-03-14T12:00:00Z".to_string(),
             },
         ];
 

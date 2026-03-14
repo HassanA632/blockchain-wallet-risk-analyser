@@ -1023,6 +1023,7 @@ name = "blockchain-wallet-risk-analyser"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "chrono",
  "clap",
  "hex",
  "serde",
