@@ -9,7 +9,8 @@ use alloy::{
 use crate::errors::AppError;
 use crate::models::TransactionEdge;
 
-const DEFAULT_RECENT_BLOCK_WINDOW: u64 = 9;
+const LOG_QUERY_BLOCK_WINDOW: u64 = 9;
+const LOG_QUERY_WINDOW_COUNT: u64 = 25;
 const ERC20_TRANSFER_EVENT_SIGNATURE: B256 =
     b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
@@ -18,17 +19,10 @@ pub struct EthereumSourceConfig {
     pub rpc_url: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TransferDirection {
-    Outgoing,
-    Incoming,
-}
-
 /// Loads transaction data for a wallet from Ethereum.
 ///
-/// This first live version fetches a bounded recent set of ERC-20 transfer logs
-/// where the wallet appears as sender or receiver and then maps them into
-/// transaction edges for the existing analysis pipeline.
+/// This version scans several recent block windows for ERC-20
+/// transfer logs where the wallet appears as sender or receiver.
 pub async fn load_transaction_edges_from_ethereum(
     wallet: &str,
     config: &EthereumSourceConfig,
@@ -41,44 +35,54 @@ pub async fn load_transaction_edges_from_ethereum(
         .await
         .map_err(|error| AppError::Source(format!("failed to get latest block number: {error}")))?;
 
-    let from_block = latest_block.saturating_sub(DEFAULT_RECENT_BLOCK_WINDOW);
-
-    // Temporary debug output to trace live Ethereum ingestion during development.
     eprintln!(
-        "[ethereum] wallet={} latest_block={} from_block={} window={}",
+        "[ethereum] wallet={} latest_block={} window_size={} window_count={}",
         format!("{wallet:#x}"),
         latest_block,
-        from_block,
-        DEFAULT_RECENT_BLOCK_WINDOW
+        LOG_QUERY_BLOCK_WINDOW,
+        LOG_QUERY_WINDOW_COUNT
     );
 
-    let outgoing_logs = fetch_wallet_transfer_logs(
-        &provider,
-        wallet,
-        from_block,
-        latest_block,
-        TransferDirection::Outgoing,
-    )
-    .await?;
+    let block_windows =
+        build_block_windows(latest_block, LOG_QUERY_BLOCK_WINDOW, LOG_QUERY_WINDOW_COUNT);
 
-    let incoming_logs = fetch_wallet_transfer_logs(
-        &provider,
-        wallet,
-        from_block,
-        latest_block,
-        TransferDirection::Incoming,
-    )
-    .await?;
+    let mut all_logs = Vec::new();
 
-    eprintln!(
-        "[ethereum] outgoing_logs={} incoming_logs={}",
-        outgoing_logs.len(),
-        incoming_logs.len()
-    );
+    for (index, (from_block, to_block)) in block_windows.iter().enumerate() {
+        let outgoing_logs = fetch_wallet_transfer_logs(
+            &provider,
+            wallet,
+            *from_block,
+            *to_block,
+            TransferDirection::Outgoing,
+        )
+        .await?;
+
+        let incoming_logs = fetch_wallet_transfer_logs(
+            &provider,
+            wallet,
+            *from_block,
+            *to_block,
+            TransferDirection::Incoming,
+        )
+        .await?;
+
+        eprintln!(
+            "[ethereum] window={} from_block={} to_block={} outgoing_logs={} incoming_logs={}",
+            index + 1,
+            from_block,
+            to_block,
+            outgoing_logs.len(),
+            incoming_logs.len()
+        );
+
+        all_logs.extend(outgoing_logs);
+        all_logs.extend(incoming_logs);
+    }
 
     let mut edges = Vec::new();
 
-    for log in outgoing_logs.into_iter().chain(incoming_logs.into_iter()) {
+    for log in all_logs {
         if let Some(edge) = map_transfer_log_to_edge(log, wallet) {
             edges.push(edge);
         }
@@ -128,6 +132,26 @@ async fn build_provider(config: &EthereumSourceConfig) -> Result<impl Provider, 
 fn parse_wallet_address(wallet: &str) -> Result<Address, AppError> {
     Address::from_str(wallet)
         .map_err(|error| AppError::Source(format!("invalid Ethereum wallet address: {error}")))
+}
+
+/// Builds recent inclusive block windows so log queries can stay within
+/// provider limits while still looking back across a wider history.
+fn build_block_windows(latest_block: u64, window_size: u64, window_count: u64) -> Vec<(u64, u64)> {
+    let mut windows = Vec::new();
+    let mut current_to_block = latest_block;
+
+    for _ in 0..window_count {
+        let current_from_block = current_to_block.saturating_sub(window_size);
+        windows.push((current_from_block, current_to_block));
+
+        if current_from_block == 0 {
+            break;
+        }
+
+        current_to_block = current_from_block.saturating_sub(1);
+    }
+
+    windows
 }
 
 /// Fetches ERC-20 transfer logs for a wallet in one direction so the live query
@@ -240,6 +264,12 @@ fn decode_transfer_value(data: &[u8]) -> Option<String> {
     Some(value.to_string())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransferDirection {
+    Outgoing,
+    Incoming,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,6 +292,20 @@ mod tests {
             }
             _ => panic!("expected missing ETH_RPC_URL source error"),
         }
+    }
+
+    #[test]
+    fn builds_recent_block_windows() {
+        let windows = build_block_windows(100, 9, 3);
+
+        assert_eq!(windows, vec![(91, 100), (81, 90), (71, 80)]);
+    }
+
+    #[test]
+    fn stops_block_windows_at_zero() {
+        let windows = build_block_windows(5, 9, 3);
+
+        assert_eq!(windows, vec![(0, 5)]);
     }
 
     #[test]
