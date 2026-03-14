@@ -8,6 +8,9 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
     rpc::types::{BlockNumberOrTag, Filter, Log},
 };
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::errors::AppError;
 use crate::models::TransactionEdge;
@@ -24,8 +27,8 @@ pub struct EthereumSourceConfig {
 
 /// Loads transaction data for a wallet from Ethereum.
 ///
-/// This version scans several recent block windows for ERC-20
-/// transfer logs where the wallet appears as sender or receiver.
+/// This version combines ERC-20 transfer ingestion with native ETH transfer
+/// ingestion and maps both into the shared transaction-edge model.
 pub async fn load_transaction_edges_from_ethereum(
     wallet: &str,
     config: &EthereumSourceConfig,
@@ -33,6 +36,33 @@ pub async fn load_transaction_edges_from_ethereum(
     let provider = build_provider(config).await?;
     let wallet = parse_wallet_address(wallet)?;
 
+    let erc20_edges = load_erc20_transaction_edges(wallet, &provider).await?;
+    let native_eth_edges = load_native_eth_transaction_edges(wallet, config).await?;
+
+    eprintln!(
+        "[ethereum] erc20_edges={} native_eth_edges={}",
+        erc20_edges.len(),
+        native_eth_edges.len()
+    );
+
+    let edges = deduplicate_edges(
+        erc20_edges
+            .into_iter()
+            .chain(native_eth_edges.into_iter())
+            .collect(),
+    );
+
+    eprintln!("[ethereum] transaction_edges={}", edges.len());
+
+    Ok(edges)
+}
+
+/// Loads ERC-20 transfer edges for the wallet by scanning several recent
+/// provider-safe block windows.
+async fn load_erc20_transaction_edges(
+    wallet: Address,
+    provider: &impl Provider,
+) -> Result<Vec<TransactionEdge>, AppError> {
     let latest_block = provider
         .get_block_number()
         .await
@@ -53,7 +83,7 @@ pub async fn load_transaction_edges_from_ethereum(
 
     for (index, (from_block, to_block)) in block_windows.iter().enumerate() {
         let outgoing_logs = fetch_wallet_transfer_logs(
-            &provider,
+            provider,
             wallet,
             *from_block,
             *to_block,
@@ -62,7 +92,7 @@ pub async fn load_transaction_edges_from_ethereum(
         .await?;
 
         let incoming_logs = fetch_wallet_transfer_logs(
-            &provider,
+            provider,
             wallet,
             *from_block,
             *to_block,
@@ -83,7 +113,7 @@ pub async fn load_transaction_edges_from_ethereum(
         all_logs.extend(incoming_logs);
     }
 
-    let timestamp_by_block = build_block_timestamp_map(&provider, &all_logs).await?;
+    let timestamp_by_block = build_block_timestamp_map(provider, &all_logs).await?;
 
     let mut edges = Vec::new();
 
@@ -93,11 +123,40 @@ pub async fn load_transaction_edges_from_ethereum(
         }
     }
 
-    let edges = deduplicate_edges(edges);
+    Ok(deduplicate_edges(edges))
+}
 
-    eprintln!("[ethereum] transaction_edges={}", edges.len());
+/// Loads native ETH transfer edges for the wallet using Alchemy transfer API.
+async fn load_native_eth_transaction_edges(
+    wallet: Address,
+    config: &EthereumSourceConfig,
+) -> Result<Vec<TransactionEdge>, AppError> {
+    let client = Client::new();
+    let wallet = format!("{wallet:#x}");
 
-    Ok(edges)
+    let outgoing = fetch_alchemy_asset_transfers(
+        &client,
+        &config.rpc_url,
+        &wallet,
+        NativeTransferDirection::Outgoing,
+    )
+    .await?;
+
+    let incoming = fetch_alchemy_asset_transfers(
+        &client,
+        &config.rpc_url,
+        &wallet,
+        NativeTransferDirection::Incoming,
+    )
+    .await?;
+
+    let edges = outgoing
+        .into_iter()
+        .chain(incoming.into_iter())
+        .filter_map(map_alchemy_transfer_to_edge)
+        .collect();
+
+    Ok(deduplicate_edges(edges))
 }
 
 /// Reads Ethereum source configuration from the environment so the source can
@@ -235,9 +294,6 @@ async fn build_block_timestamp_map(
 }
 
 /// Formats a Unix block timestamp into a UTC string suitable for filtering.
-///
-/// This keeps the timestamp stable and comparable even before a full datetime
-/// library is introduced for richer formatting.
 fn format_block_timestamp(timestamp_seconds: u64) -> String {
     use chrono::{TimeZone, Utc};
 
@@ -246,6 +302,88 @@ fn format_block_timestamp(timestamp_seconds: u64) -> String {
         .expect("block timestamp should convert to a valid UTC datetime")
         .format("%Y-%m-%dT%H:%M:%SZ")
         .to_string()
+}
+
+/// Calls Alchemy asset transfer method for one wallet direction so native ETH
+/// movements can be folded into the same interaction model as token transfers.
+async fn fetch_alchemy_asset_transfers(
+    client: &Client,
+    rpc_url: &str,
+    wallet: &str,
+    direction: NativeTransferDirection,
+) -> Result<Vec<AlchemyAssetTransfer>, AppError> {
+    let params = match direction {
+        NativeTransferDirection::Outgoing => json!([{
+            "fromBlock": "0x0",
+            "toBlock": "latest",
+            "fromAddress": wallet,
+            "category": ["external"],
+            "withMetadata": true,
+            "excludeZeroValue": true,
+            "maxCount": "0x3e8"
+        }]),
+        NativeTransferDirection::Incoming => json!([{
+            "fromBlock": "0x0",
+            "toBlock": "latest",
+            "toAddress": wallet,
+            "category": ["external"],
+            "withMetadata": true,
+            "excludeZeroValue": true,
+            "maxCount": "0x3e8"
+        }]),
+    };
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "alchemy_getAssetTransfers",
+        "params": params
+    });
+
+    let response = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| {
+            AppError::Source(format!(
+                "failed to call Alchemy asset transfers API: {error}"
+            ))
+        })?;
+
+    let status = response.status();
+    let response_text = response.text().await.map_err(|error| {
+        AppError::Source(format!(
+            "failed to read Alchemy asset transfers response: {error}"
+        ))
+    })?;
+
+    if !status.is_success() {
+        return Err(AppError::Source(format!(
+            "Alchemy asset transfers API returned HTTP {} with body: {}",
+            status, response_text
+        )));
+    }
+
+    let payload: AlchemyAssetTransfersResponse =
+        serde_json::from_str(&response_text).map_err(|error| {
+            AppError::Source(format!(
+                "failed to parse Alchemy asset transfers response: {error}"
+            ))
+        })?;
+
+    if let Some(error) = payload.error {
+        return Err(AppError::Source(format!(
+            "Alchemy asset transfers API error {}: {}",
+            error.code, error.message
+        )));
+    }
+
+    let result = payload.result.ok_or_else(|| {
+        AppError::Source("Alchemy asset transfers API returned no result".to_string())
+    })?;
+
+    Ok(result.transfers)
 }
 
 /// Maps a matching ERC-20 transfer log into the internal transaction-edge shape.
@@ -283,8 +421,27 @@ fn map_transfer_log_to_edge(
     })
 }
 
-/// Deduplicates edges after incoming and outgoing log queries are merged so a
-/// self-transfer or overlapping result does not appear twice.
+/// Maps one Alchemy native ETH transfer into the shared transaction-edge shape.
+fn map_alchemy_transfer_to_edge(transfer: AlchemyAssetTransfer) -> Option<TransactionEdge> {
+    let amount = transfer.value?;
+    let timestamp = transfer
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.block_timestamp.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Some(TransactionEdge {
+        from_address: transfer.from,
+        to_address: transfer.to,
+        tx_hash: transfer.hash,
+        asset: "ETH".to_string(),
+        amount: amount.to_string(),
+        timestamp,
+    })
+}
+
+/// Deduplicates edges after different live fetch paths are merged so repeated
+/// results do not create duplicate relationships.
 fn deduplicate_edges(edges: Vec<TransactionEdge>) -> Vec<TransactionEdge> {
     let mut seen = HashSet::new();
 
@@ -329,6 +486,46 @@ fn decode_transfer_value(data: &[u8]) -> Option<String> {
 enum TransferDirection {
     Outgoing,
     Incoming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeTransferDirection {
+    Outgoing,
+    Incoming,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlchemyAssetTransfersResponse {
+    result: Option<AlchemyAssetTransfersResult>,
+    error: Option<AlchemyRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlchemyAssetTransfersResult {
+    transfers: Vec<AlchemyAssetTransfer>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlchemyAssetTransfer {
+    from: String,
+    to: String,
+    hash: String,
+    value: Option<f64>,
+    metadata: Option<AlchemyTransferMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlchemyTransferMetadata {
+    block_timestamp: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlchemyRpcError {
+    code: i64,
+    message: String,
 }
 
 #[cfg(test)]
@@ -377,6 +574,27 @@ mod tests {
     }
 
     #[test]
+    fn maps_alchemy_transfer_to_native_eth_edge() {
+        let transfer = AlchemyAssetTransfer {
+            from: "0xaaa".to_string(),
+            to: "0xbbb".to_string(),
+            hash: "0xtx".to_string(),
+            value: Some(0.5),
+            metadata: Some(AlchemyTransferMetadata {
+                block_timestamp: "2026-03-14T12:00:00Z".to_string(),
+            }),
+        };
+
+        let edge = map_alchemy_transfer_to_edge(transfer).expect("transfer should map");
+
+        assert_eq!(edge.from_address, "0xaaa");
+        assert_eq!(edge.to_address, "0xbbb");
+        assert_eq!(edge.asset, "ETH");
+        assert_eq!(edge.amount, "0.5");
+        assert_eq!(edge.timestamp, "2026-03-14T12:00:00Z");
+    }
+
+    #[test]
     fn converts_address_to_topic() {
         let address =
             Address::from_str("0x1111111111111111111111111111111111111111").expect("valid address");
@@ -418,16 +636,16 @@ mod tests {
                 from_address: "0xaaa".to_string(),
                 to_address: "0xbbb".to_string(),
                 tx_hash: "0xtx".to_string(),
-                asset: "0xtoken".to_string(),
-                amount: "100".to_string(),
+                asset: "ETH".to_string(),
+                amount: "0.5".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
             },
             TransactionEdge {
                 from_address: "0xaaa".to_string(),
                 to_address: "0xbbb".to_string(),
                 tx_hash: "0xtx".to_string(),
-                asset: "0xtoken".to_string(),
-                amount: "100".to_string(),
+                asset: "ETH".to_string(),
+                amount: "0.5".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
             },
         ];
