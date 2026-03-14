@@ -1024,6 +1024,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "clap",
+ "hex",
  "serde",
  "serde_json",
  "tokio",
