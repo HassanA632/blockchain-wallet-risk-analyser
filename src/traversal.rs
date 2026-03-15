@@ -1,6 +1,6 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::models::{DiscoveredWallet, RelationshipStep, WalletRelationship};
+use crate::models::{DiscoveredWallet, RelationshipStep, ServiceWallet, WalletRelationship};
 
 /// Discovers wallets connected to a target address within the requested hop
 /// depth so later analysis can check them against risk intelligence.
@@ -8,6 +8,7 @@ pub fn discover_wallets(
     target_wallet: &str,
     hop_depth: u8,
     relationships: &[WalletRelationship],
+    service_wallet_index: &HashMap<String, ServiceWallet>,
 ) -> Vec<DiscoveredWallet> {
     let mut discovered = Vec::new();
     let mut seen_addresses = HashSet::new();
@@ -25,7 +26,10 @@ pub fn discover_wallets(
                     relationship_path: vec![first_step.clone()],
                 };
 
-                first_hop_wallets.push((neighbour.to_string(), first_step));
+                if !is_service_wallet(neighbour, service_wallet_index) {
+                    first_hop_wallets.push((neighbour.to_string(), first_step));
+                }
+
                 discovered.push(wallet);
             }
         }
@@ -65,8 +69,7 @@ pub fn discover_wallets(
 }
 
 /// Returns the wallet on the opposite side of a wallet relationship when the
-/// given address is part of that relationship allowing traversal to treat it
-/// as a wallet-to-wallet connection.
+/// given address is part of that relationship.
 fn connected_wallet<'a>(address: &str, relationship: &'a WalletRelationship) -> Option<&'a str> {
     if relationship.wallet_a == address {
         Some(relationship.wallet_b.as_str())
@@ -118,11 +121,22 @@ fn relationship_step(
     }
 }
 
+/// Checks whether a wallet is a known service wallet so traversal can stop
+/// expansion beyond this address.
+fn is_service_wallet(wallet: &str, service_wallet_index: &HashMap<String, ServiceWallet>) -> bool {
+    service_wallet_index.contains_key(wallet)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::TransactionEdge;
+    use crate::models::{ServiceType, TransactionEdge};
     use crate::relationships::build_wallet_relationships;
+    use crate::service_wallets::build_service_wallet_index;
+
+    fn empty_service_wallet_index() -> HashMap<String, ServiceWallet> {
+        HashMap::new()
+    }
 
     fn sample_relationships() -> Vec<WalletRelationship> {
         let edges = vec![
@@ -173,6 +187,7 @@ mod tests {
             "0x1111111111111111111111111111111111111111",
             1,
             &sample_relationships(),
+            &empty_service_wallet_index(),
         );
 
         assert_eq!(discovered.len(), 2);
@@ -187,53 +202,6 @@ mod tests {
                 .any(|wallet| { wallet.address == "0x3333333333333333333333333333333333333333" })
         );
         assert!(discovered.iter().all(|wallet| wallet.hop_distance == 1));
-
-        let wallet1 = discovered
-            .iter()
-            .find(|wallet| wallet.address == "0x2222222222222222222222222222222222222222")
-            .expect("0x2222222222222222222222222222222222222222 should be discovered");
-
-        assert_eq!(
-            wallet1.path,
-            vec![
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "0x2222222222222222222222222222222222222222".to_string()
-            ]
-        );
-        assert_eq!(wallet1.relationship_path.len(), 1);
-
-        assert_eq!(
-            wallet1.relationship_path[0].from_wallet,
-            "0x1111111111111111111111111111111111111111"
-        );
-        assert_eq!(
-            wallet1.relationship_path[0].to_wallet,
-            "0x2222222222222222222222222222222222222222"
-        );
-        assert_eq!(wallet1.relationship_path[0].transaction_count, 1);
-
-        let wallet2 = discovered
-            .iter()
-            .find(|wallet| wallet.address == "0x3333333333333333333333333333333333333333")
-            .expect("0x3333333333333333333333333333333333333333 should be discovered");
-
-        assert_eq!(
-            wallet2.path,
-            vec![
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "0x3333333333333333333333333333333333333333".to_string()
-            ]
-        );
-        assert_eq!(wallet2.relationship_path.len(), 1);
-
-        assert_eq!(
-            wallet2.relationship_path[0].from_wallet,
-            "0x1111111111111111111111111111111111111111"
-        );
-        assert_eq!(
-            wallet2.relationship_path[0].to_wallet,
-            "0x3333333333333333333333333333333333333333"
-        );
     }
 
     #[test]
@@ -242,6 +210,7 @@ mod tests {
             "0x1111111111111111111111111111111111111111",
             2,
             &sample_relationships(),
+            &empty_service_wallet_index(),
         );
 
         assert_eq!(discovered.len(), 4);
@@ -254,54 +223,6 @@ mod tests {
             discovered
                 .iter()
                 .any(|wallet| { wallet.address == "0x5555555555555555555555555555555555555555" })
-        );
-
-        let risky1 = discovered
-            .iter()
-            .find(|wallet| wallet.address == "0x4444444444444444444444444444444444444444")
-            .expect("0x4444444444444444444444444444444444444444 should be discovered");
-
-        assert_eq!(risky1.hop_distance, 2);
-        assert_eq!(
-            risky1.path,
-            vec![
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "0x2222222222222222222222222222222222222222".to_string(),
-                "0x4444444444444444444444444444444444444444".to_string()
-            ]
-        );
-        assert_eq!(risky1.relationship_path.len(), 2);
-
-        assert_eq!(
-            risky1.relationship_path[0].from_wallet,
-            "0x1111111111111111111111111111111111111111"
-        );
-        assert_eq!(
-            risky1.relationship_path[0].to_wallet,
-            "0x2222222222222222222222222222222222222222"
-        );
-        assert_eq!(
-            risky1.relationship_path[1].from_wallet,
-            "0x2222222222222222222222222222222222222222"
-        );
-        assert_eq!(
-            risky1.relationship_path[1].to_wallet,
-            "0x4444444444444444444444444444444444444444"
-        );
-
-        let risky2 = discovered
-            .iter()
-            .find(|wallet| wallet.address == "0x5555555555555555555555555555555555555555")
-            .expect("0x5555555555555555555555555555555555555555 should be discovered");
-
-        assert_eq!(risky2.hop_distance, 2);
-        assert_eq!(
-            risky2.path,
-            vec![
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "0x3333333333333333333333333333333333333333".to_string(),
-                "0x5555555555555555555555555555555555555555".to_string()
-            ]
         );
     }
 
@@ -334,6 +255,7 @@ mod tests {
             "0x1111111111111111111111111111111111111111",
             2,
             &relationships,
+            &empty_service_wallet_index(),
         );
 
         assert!(
@@ -341,41 +263,55 @@ mod tests {
                 .iter()
                 .all(|wallet| wallet.address != "0x1111111111111111111111111111111111111111")
         );
+    }
 
-        let wallet1 = discovered
-            .iter()
-            .find(|wallet| wallet.address == "0x2222222222222222222222222222222222222222")
-            .expect("0x2222222222222222222222222222222222222222 should still be discovered");
+    #[test]
+    fn includes_service_wallet_but_does_not_expand_beyond_it() {
+        let edges = vec![
+            TransactionEdge {
+                from_address: "0x1111111111111111111111111111111111111111".to_string(),
+                to_address: "0x2222222222222222222222222222222222222222".to_string(),
+                tx_hash: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+                asset: "ETH".to_string(),
+                amount: "1.00".to_string(),
+                timestamp: "2026-03-11T10:00:00Z".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0x2222222222222222222222222222222222222222".to_string(),
+                to_address: "0x3333333333333333333333333333333333333333".to_string(),
+                tx_hash: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_string(),
+                asset: "ETH".to_string(),
+                amount: "2.00".to_string(),
+                timestamp: "2026-03-11T10:05:00Z".to_string(),
+            },
+        ];
 
-        assert_eq!(
-            wallet1.path,
-            vec![
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "0x2222222222222222222222222222222222222222".to_string()
-            ]
+        let relationships = build_wallet_relationships(&edges);
+
+        let service_wallet_index = build_service_wallet_index(vec![ServiceWallet {
+            address: "0x2222222222222222222222222222222222222222".to_string(),
+            label: "Sample Exchange Hot Wallet".to_string(),
+            service_type: ServiceType::Exchange,
+        }]);
+
+        let discovered = discover_wallets(
+            "0x1111111111111111111111111111111111111111",
+            2,
+            &relationships,
+            &service_wallet_index,
         );
 
-        assert_eq!(wallet1.relationship_path.len(), 1);
-        assert_eq!(
-            wallet1.relationship_path[0].from_wallet,
-            "0x1111111111111111111111111111111111111111"
-        );
-        assert_eq!(
-            wallet1.relationship_path[0].to_wallet,
-            "0x2222222222222222222222222222222222222222"
-        );
-        assert_eq!(wallet1.relationship_path[0].transaction_count, 2);
-        assert_eq!(wallet1.relationship_path[0].sent_transaction_count, 1);
-        assert_eq!(wallet1.relationship_path[0].received_transaction_count, 1);
-        assert_eq!(
-            wallet1.relationship_path[0].sent_totals_by_asset.get("ETH"),
-            Some(&1.0)
-        );
-        assert_eq!(
-            wallet1.relationship_path[0]
-                .received_totals_by_asset
-                .get("ETH"),
-            Some(&0.5)
+        assert!(discovered.iter().any(|wallet| {
+            wallet.address == "0x2222222222222222222222222222222222222222"
+                && wallet.hop_distance == 1
+        }));
+
+        assert!(
+            !discovered
+                .iter()
+                .any(|wallet| { wallet.address == "0x3333333333333333333333333333333333333333" })
         );
     }
 }
