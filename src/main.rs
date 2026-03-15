@@ -40,10 +40,6 @@ async fn main() -> Result<(), AppError> {
         },
     };
 
-    let edges = load_edges_from_source(&edge_source).await?;
-    let filtered_edges =
-        filter_edges_by_date_range(&edges, args.from_date.as_deref(), args.to_date.as_deref());
-
     let built_in_risk_entities = load_built_in_risk_entities(DEFAULT_RISK_LIST_PATH)?;
     let service_wallets = load_service_wallets(DEFAULT_SERVICE_WALLET_LIST_PATH)?;
     let service_wallet_index = build_service_wallet_index(service_wallets);
@@ -52,6 +48,10 @@ async fn main() -> Result<(), AppError> {
         Some(path) => load_custom_risk_entities(path)?,
         None => Vec::new(),
     };
+
+    let edges = load_edges_from_source(&edge_source, args.hops, &service_wallet_index).await?;
+    let filtered_edges =
+        filter_edges_by_date_range(&edges, args.from_date.as_deref(), args.to_date.as_deref());
 
     let risk_index = build_risk_index(built_in_risk_entities, custom_risk_entities);
     let relationships = build_wallet_relationships(&filtered_edges);

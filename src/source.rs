@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::errors::AppError;
 use crate::ethereum::{load_ethereum_source_config, load_transaction_edges_from_ethereum};
 use crate::loader::load_transaction_edges;
-use crate::models::TransactionEdge;
+use crate::models::{ServiceWallet, TransactionEdge};
 
 /// Where transaction data should be loaded from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,12 +15,15 @@ pub enum TransactionEdgeSource {
 /// Loads transaction data from the chosen source.
 pub async fn load_edges_from_source(
     source: &TransactionEdgeSource,
+    hop_depth: u8,
+    service_wallet_index: &HashMap<String, ServiceWallet>,
 ) -> Result<Vec<TransactionEdge>, AppError> {
     match source {
         TransactionEdgeSource::LocalFile { path } => load_transaction_edges(path),
         TransactionEdgeSource::Ethereum { wallet } => {
             let config = load_ethereum_source_config()?;
-            load_transaction_edges_from_ethereum(wallet, &config).await
+            load_transaction_edges_from_ethereum(wallet, hop_depth, service_wallet_index, &config)
+                .await
         }
     }
 }
@@ -63,7 +66,7 @@ mod tests {
             path: file_path.clone(),
         };
 
-        let edges = load_edges_from_source(&source)
+        let edges = load_edges_from_source(&source, 1, &HashMap::new())
             .await
             .expect("local source should load edges");
 
@@ -82,6 +85,7 @@ mod tests {
 
     #[tokio::test]
     async fn returns_error_when_ethereum_source_config_is_missing() {
+        // Safe since this test mutates the environment in a controlled single use context.
         unsafe {
             std::env::remove_var("ETH_RPC_URL");
         }
@@ -90,7 +94,7 @@ mod tests {
             wallet: "0x1111111111111111111111111111111111111111".to_string(),
         };
 
-        let result = load_edges_from_source(&source).await;
+        let result = load_edges_from_source(&source, 1, &HashMap::new()).await;
 
         match result {
             Err(AppError::Source(message)) => {

@@ -9,14 +9,15 @@ use alloy::{
     rpc::types::{BlockNumberOrTag, Filter, Log},
 };
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::errors::AppError;
-use crate::models::TransactionEdge;
+use crate::models::{ServiceWallet, TransactionEdge};
 
 const LOG_QUERY_BLOCK_WINDOW: u64 = 9;
-const LOG_QUERY_WINDOW_COUNT: u64 = 25;
+const LOG_QUERY_WINDOW_COUNT: u64 = 5;
+const MAX_SECOND_HOP_WALLETS: usize = 5;
 const ERC20_TRANSFER_EVENT_SIGNATURE: B256 =
     b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
@@ -31,36 +32,148 @@ enum AlchemyTransferCategory {
     Internal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransferDirection {
+    Outgoing,
+    Incoming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeTransferDirection {
+    Outgoing,
+    Incoming,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlchemyAssetTransfersResponse {
+    result: Option<AlchemyAssetTransfersResult>,
+    error: Option<AlchemyRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlchemyAssetTransfersResult {
+    transfers: Vec<AlchemyAssetTransfer>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlchemyAssetTransfer {
+    from: String,
+    to: String,
+    hash: String,
+    value: Option<f64>,
+    metadata: Option<AlchemyTransferMetadata>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AlchemyTransferMetadata {
+    block_timestamp: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlchemyRpcError {
+    code: i64,
+    message: String,
+}
+
 /// Loads transaction data for a wallet from Ethereum.
 ///
-/// This version combines ERC-20 transfer ingestion with native ETH transfer
-/// ingestion and maps both into the shared transaction-edge model.
+/// For 2-hop analysis this also expands a set of non-service first-hop
+/// wallets so the live source can build a wider interaction graph.
 pub async fn load_transaction_edges_from_ethereum(
     wallet: &str,
+    hop_depth: u8,
+    service_wallet_index: &HashMap<String, ServiceWallet>,
     config: &EthereumSourceConfig,
 ) -> Result<Vec<TransactionEdge>, AppError> {
     let provider = build_provider(config).await?;
     let wallet = parse_wallet_address(wallet)?;
 
-    let erc20_edges = load_erc20_transaction_edges(wallet, &provider).await?;
-    let eth_edges = load_eth_transaction_edges(wallet, config).await?;
+    let mut edges = load_edges_for_wallet(wallet, &provider, config).await?;
 
-    eprintln!(
-        "[ethereum] erc20_edges={} eth_edges={}",
-        erc20_edges.len(),
-        eth_edges.len()
-    );
+    if hop_depth >= 2 {
+        let first_hop_wallets =
+            extract_expandable_counterparties(wallet, &edges, service_wallet_index);
 
-    let edges = deduplicate_edges(
-        erc20_edges
-            .into_iter()
-            .chain(eth_edges.into_iter())
-            .collect(),
-    );
+        eprintln!(
+            "[ethereum] first_hop_wallets={} expanding_up_to={}",
+            first_hop_wallets.len(),
+            MAX_SECOND_HOP_WALLETS
+        );
+
+        for counterparty in first_hop_wallets.into_iter().take(MAX_SECOND_HOP_WALLETS) {
+            let counterparty_edges = load_edges_for_wallet(counterparty, &provider, config).await?;
+
+            eprintln!(
+                "[ethereum] expanded_wallet={} fetched_edges={}",
+                format!("{counterparty:#x}"),
+                counterparty_edges.len()
+            );
+
+            edges.extend(counterparty_edges);
+        }
+    }
+
+    let edges = deduplicate_edges(edges);
 
     eprintln!("[ethereum] transaction_edges={}", edges.len());
 
     Ok(edges)
+}
+
+/// Loads all currently supported live transfer types for one wallet.
+async fn load_edges_for_wallet(
+    wallet: Address,
+    provider: &impl Provider,
+    config: &EthereumSourceConfig,
+) -> Result<Vec<TransactionEdge>, AppError> {
+    let erc20_edges = load_erc20_transaction_edges(wallet, provider).await?;
+    let eth_edges = load_eth_transaction_edges(wallet, config).await?;
+
+    eprintln!(
+        "[ethereum] wallet={} erc20_edges={} eth_edges={}",
+        format!("{wallet:#x}"),
+        erc20_edges.len(),
+        eth_edges.len()
+    );
+
+    Ok(deduplicate_edges(
+        erc20_edges
+            .into_iter()
+            .chain(eth_edges.into_iter())
+            .collect(),
+    ))
+}
+
+/// Extracts unique first-hop counterparties from fetched edges and removes
+/// service wallets so live 2-hop expansion stays useful.
+fn extract_expandable_counterparties(
+    target_wallet: Address,
+    edges: &[TransactionEdge],
+    service_wallet_index: &HashMap<String, ServiceWallet>,
+) -> Vec<Address> {
+    let target_wallet = format!("{target_wallet:#x}");
+    let mut counterparties = HashSet::new();
+
+    for edge in edges {
+        if edge.from_address == target_wallet && edge.to_address != target_wallet {
+            if !service_wallet_index.contains_key(&edge.to_address) {
+                if let Ok(address) = Address::from_str(&edge.to_address) {
+                    counterparties.insert(address);
+                }
+            }
+        } else if edge.to_address == target_wallet && edge.from_address != target_wallet {
+            if !service_wallet_index.contains_key(&edge.from_address) {
+                if let Ok(address) = Address::from_str(&edge.from_address) {
+                    counterparties.insert(address);
+                }
+            }
+        }
+    }
+
+    counterparties.into_iter().collect()
 }
 
 /// Loads ERC-20 transfer edges for the wallet by scanning several recent
@@ -529,52 +642,6 @@ fn decode_transfer_value(data: &[u8]) -> Option<String> {
     Some(value.to_string())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TransferDirection {
-    Outgoing,
-    Incoming,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NativeTransferDirection {
-    Outgoing,
-    Incoming,
-}
-
-#[derive(Debug, Deserialize)]
-struct AlchemyAssetTransfersResponse {
-    result: Option<AlchemyAssetTransfersResult>,
-    error: Option<AlchemyRpcError>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AlchemyAssetTransfersResult {
-    transfers: Vec<AlchemyAssetTransfer>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AlchemyAssetTransfer {
-    from: String,
-    to: String,
-    hash: String,
-    value: Option<f64>,
-    metadata: Option<AlchemyTransferMetadata>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AlchemyTransferMetadata {
-    block_timestamp: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct AlchemyRpcError {
-    code: i64,
-    message: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,5 +788,86 @@ mod tests {
         assert_eq!(edge.asset, "ETH");
         assert_eq!(edge.amount, "1.25");
         assert_eq!(edge.timestamp, "2026-03-14T12:00:00Z");
+    }
+
+    #[test]
+    fn extracts_expandable_counterparties_from_edges() {
+        let target_wallet =
+            Address::from_str("0x1111111111111111111111111111111111111111").expect("valid address");
+
+        let edges = vec![
+            TransactionEdge {
+                from_address: "0x1111111111111111111111111111111111111111".to_string(),
+                to_address: "0x2222222222222222222222222222222222222222".to_string(),
+                tx_hash: "0xtx1".to_string(),
+                asset: "ETH".to_string(),
+                amount: "1".to_string(),
+                timestamp: "2026-03-14T12:00:00Z".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0x3333333333333333333333333333333333333333".to_string(),
+                to_address: "0x1111111111111111111111111111111111111111".to_string(),
+                tx_hash: "0xtx2".to_string(),
+                asset: "ETH".to_string(),
+                amount: "2".to_string(),
+                timestamp: "2026-03-14T12:00:00Z".to_string(),
+            },
+        ];
+
+        let counterparties =
+            extract_expandable_counterparties(target_wallet, &edges, &HashMap::new());
+
+        let formatted: HashSet<String> = counterparties
+            .into_iter()
+            .map(|address| format!("{address:#x}"))
+            .collect();
+
+        assert!(formatted.contains("0x2222222222222222222222222222222222222222"));
+        assert!(formatted.contains("0x3333333333333333333333333333333333333333"));
+    }
+
+    #[test]
+    fn excludes_service_wallets_from_expandable_counterparties() {
+        let target_wallet =
+            Address::from_str("0x1111111111111111111111111111111111111111").expect("valid address");
+
+        let edges = vec![
+            TransactionEdge {
+                from_address: "0x1111111111111111111111111111111111111111".to_string(),
+                to_address: "0x2222222222222222222222222222222222222222".to_string(),
+                tx_hash: "0xtx1".to_string(),
+                asset: "ETH".to_string(),
+                amount: "1".to_string(),
+                timestamp: "2026-03-14T12:00:00Z".to_string(),
+            },
+            TransactionEdge {
+                from_address: "0x3333333333333333333333333333333333333333".to_string(),
+                to_address: "0x1111111111111111111111111111111111111111".to_string(),
+                tx_hash: "0xtx2".to_string(),
+                asset: "ETH".to_string(),
+                amount: "2".to_string(),
+                timestamp: "2026-03-14T12:00:00Z".to_string(),
+            },
+        ];
+
+        let service_wallet_index = HashMap::from([(
+            "0x2222222222222222222222222222222222222222".to_string(),
+            ServiceWallet {
+                address: "0x2222222222222222222222222222222222222222".to_string(),
+                label: "Sample Exchange".to_string(),
+                service_type: crate::models::ServiceType::Exchange,
+            },
+        )]);
+
+        let counterparties =
+            extract_expandable_counterparties(target_wallet, &edges, &service_wallet_index);
+
+        let formatted: HashSet<String> = counterparties
+            .into_iter()
+            .map(|address| format!("{address:#x}"))
+            .collect();
+
+        assert!(!formatted.contains("0x2222222222222222222222222222222222222222"));
+        assert!(formatted.contains("0x3333333333333333333333333333333333333333"));
     }
 }
