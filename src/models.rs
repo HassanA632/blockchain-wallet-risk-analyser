@@ -97,3 +97,18 @@ pub enum DataSource {
     Local,
     Ethereum,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceWallet {
+    pub address: String,
+    pub label: String,
+    pub service_type: ServiceType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServiceType {
+    Exchange,
+    Bridge,
+    Router,
+    Service,
+}

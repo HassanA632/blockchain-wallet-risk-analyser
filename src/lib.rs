@@ -9,6 +9,7 @@ pub mod output;
 pub mod relationships;
 pub mod report;
 pub mod risk;
+pub mod service_wallets;
 pub mod source;
 pub mod traversal;
 pub mod validation;
