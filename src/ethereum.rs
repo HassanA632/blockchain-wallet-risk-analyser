@@ -25,6 +25,12 @@ pub struct EthereumSourceConfig {
     pub rpc_url: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlchemyTransferCategory {
+    External,
+    Internal,
+}
+
 /// Loads transaction data for a wallet from Ethereum.
 ///
 /// This version combines ERC-20 transfer ingestion with native ETH transfer
@@ -37,18 +43,18 @@ pub async fn load_transaction_edges_from_ethereum(
     let wallet = parse_wallet_address(wallet)?;
 
     let erc20_edges = load_erc20_transaction_edges(wallet, &provider).await?;
-    let native_eth_edges = load_native_eth_transaction_edges(wallet, config).await?;
+    let eth_edges = load_eth_transaction_edges(wallet, config).await?;
 
     eprintln!(
-        "[ethereum] erc20_edges={} native_eth_edges={}",
+        "[ethereum] erc20_edges={} eth_edges={}",
         erc20_edges.len(),
-        native_eth_edges.len()
+        eth_edges.len()
     );
 
     let edges = deduplicate_edges(
         erc20_edges
             .into_iter()
-            .chain(native_eth_edges.into_iter())
+            .chain(eth_edges.into_iter())
             .collect(),
     );
 
@@ -126,33 +132,66 @@ async fn load_erc20_transaction_edges(
     Ok(deduplicate_edges(edges))
 }
 
-/// Loads native ETH transfer edges for the wallet using Alchemy transfer API.
-async fn load_native_eth_transaction_edges(
+/// Loads ETH transfer edges for the wallet using Alchemy transfer API.
+///
+/// This includes both top-level external ETH transfers and internal ETH
+/// transfers so the live source captures more contract driven value movement.
+async fn load_eth_transaction_edges(
     wallet: Address,
     config: &EthereumSourceConfig,
 ) -> Result<Vec<TransactionEdge>, AppError> {
     let client = Client::new();
     let wallet = format!("{wallet:#x}");
 
-    let outgoing = fetch_alchemy_asset_transfers(
+    let outgoing_external = fetch_alchemy_asset_transfers(
         &client,
         &config.rpc_url,
         &wallet,
         NativeTransferDirection::Outgoing,
+        AlchemyTransferCategory::External,
     )
     .await?;
 
-    let incoming = fetch_alchemy_asset_transfers(
+    let incoming_external = fetch_alchemy_asset_transfers(
         &client,
         &config.rpc_url,
         &wallet,
         NativeTransferDirection::Incoming,
+        AlchemyTransferCategory::External,
     )
     .await?;
 
-    let edges = outgoing
+    let outgoing_internal = fetch_alchemy_asset_transfers(
+        &client,
+        &config.rpc_url,
+        &wallet,
+        NativeTransferDirection::Outgoing,
+        AlchemyTransferCategory::Internal,
+    )
+    .await?;
+
+    let incoming_internal = fetch_alchemy_asset_transfers(
+        &client,
+        &config.rpc_url,
+        &wallet,
+        NativeTransferDirection::Incoming,
+        AlchemyTransferCategory::Internal,
+    )
+    .await?;
+
+    eprintln!(
+        "[ethereum] outgoing_external={} incoming_external={} outgoing_internal={} incoming_internal={}",
+        outgoing_external.len(),
+        incoming_external.len(),
+        outgoing_internal.len(),
+        incoming_internal.len()
+    );
+
+    let edges = outgoing_external
         .into_iter()
-        .chain(incoming.into_iter())
+        .chain(incoming_external.into_iter())
+        .chain(outgoing_internal.into_iter())
+        .chain(incoming_internal.into_iter())
         .filter_map(map_alchemy_transfer_to_edge)
         .collect();
 
@@ -304,20 +343,27 @@ fn format_block_timestamp(timestamp_seconds: u64) -> String {
         .to_string()
 }
 
-/// Calls Alchemy asset transfer method for one wallet direction so native ETH
-/// movements can be folded into the same interaction model as token transfers.
+/// Calls Alchemy asset transfer method for one wallet direction and transfer
+/// category so ETH movements can be folded into the same interaction model as
+/// token transfers.
 async fn fetch_alchemy_asset_transfers(
     client: &Client,
     rpc_url: &str,
     wallet: &str,
     direction: NativeTransferDirection,
+    category: AlchemyTransferCategory,
 ) -> Result<Vec<AlchemyAssetTransfer>, AppError> {
+    let category_label = match category {
+        AlchemyTransferCategory::External => "external",
+        AlchemyTransferCategory::Internal => "internal",
+    };
+
     let params = match direction {
         NativeTransferDirection::Outgoing => json!([{
             "fromBlock": "0x0",
             "toBlock": "latest",
             "fromAddress": wallet,
-            "category": ["external"],
+            "category": [category_label],
             "withMetadata": true,
             "excludeZeroValue": true,
             "maxCount": "0x3e8"
@@ -326,7 +372,7 @@ async fn fetch_alchemy_asset_transfers(
             "fromBlock": "0x0",
             "toBlock": "latest",
             "toAddress": wallet,
-            "category": ["external"],
+            "category": [category_label],
             "withMetadata": true,
             "excludeZeroValue": true,
             "maxCount": "0x3e8"
@@ -422,6 +468,7 @@ fn map_transfer_log_to_edge(
 }
 
 /// Maps one Alchemy native ETH transfer into the shared transaction-edge shape.
+/// Used for both external and internal ETH transfers.
 fn map_alchemy_transfer_to_edge(transfer: AlchemyAssetTransfer) -> Option<TransactionEdge> {
     let amount = transfer.value?;
     let timestamp = transfer
@@ -653,5 +700,26 @@ mod tests {
         let deduplicated = deduplicate_edges(edges);
 
         assert_eq!(deduplicated.len(), 1);
+    }
+
+    #[test]
+    fn maps_internal_eth_transfer_to_edge() {
+        let transfer = AlchemyAssetTransfer {
+            from: "0xcontract".to_string(),
+            to: "0xwallet".to_string(),
+            hash: "0xinternaltx".to_string(),
+            value: Some(1.25),
+            metadata: Some(AlchemyTransferMetadata {
+                block_timestamp: "2026-03-14T12:00:00Z".to_string(),
+            }),
+        };
+
+        let edge = map_alchemy_transfer_to_edge(transfer).expect("transfer should map");
+
+        assert_eq!(edge.from_address, "0xcontract");
+        assert_eq!(edge.to_address, "0xwallet");
+        assert_eq!(edge.asset, "ETH");
+        assert_eq!(edge.amount, "1.25");
+        assert_eq!(edge.timestamp, "2026-03-14T12:00:00Z");
     }
 }
