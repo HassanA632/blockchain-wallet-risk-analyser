@@ -1,27 +1,30 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use crate::errors::AppError;
+use crate::ethereum::{load_ethereum_source_config, load_transaction_edges_from_ethereum};
 use crate::loader::load_transaction_edges;
-use crate::models::TransactionEdge;
+use crate::models::{ServiceWallet, TransactionEdge};
 
-/// Represents the source used to load transaction edge data so the analysis
-/// pipeline can stay independent from where interaction data comes from.
+/// Where transaction data should be loaded from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransactionEdgeSource {
     LocalFile { path: PathBuf },
     Ethereum { wallet: String },
 }
 
-/// Loads transaction edges from the selected source so later providers can plug
-/// into the same analysis pipeline without changing downstream logic.
-pub fn load_edges_from_source(
+/// Loads transaction data from the chosen source.
+pub async fn load_edges_from_source(
     source: &TransactionEdgeSource,
+    hop_depth: u8,
+    service_wallet_index: &HashMap<String, ServiceWallet>,
 ) -> Result<Vec<TransactionEdge>, AppError> {
     match source {
         TransactionEdgeSource::LocalFile { path } => load_transaction_edges(path),
-        TransactionEdgeSource::Ethereum { wallet } => Err(AppError::Source(format!(
-            "Ethereum source is not implemented yet for wallet {wallet}"
-        ))),
+        TransactionEdgeSource::Ethereum { wallet } => {
+            let config = load_ethereum_source_config()?;
+            load_transaction_edges_from_ethereum(wallet, hop_depth, service_wallet_index, &config)
+                .await
+        }
     }
 }
 
@@ -40,8 +43,8 @@ mod tests {
         std::env::temp_dir().join(format!("{unique_suffix}_{file_name}"))
     }
 
-    #[test]
-    fn loads_transaction_edges_from_local_file_source() {
+    #[tokio::test]
+    async fn loads_transaction_edges_from_local_file_source() {
         let file_path = temp_file_path("source_transaction_edges.json");
 
         let json = r#"
@@ -63,7 +66,9 @@ mod tests {
             path: file_path.clone(),
         };
 
-        let edges = load_edges_from_source(&source).expect("local source should load edges");
+        let edges = load_edges_from_source(&source, 1, &HashMap::new())
+            .await
+            .expect("local source should load edges");
 
         assert_eq!(edges.len(), 1);
         assert_eq!(
@@ -78,22 +83,24 @@ mod tests {
         fs::remove_file(&file_path).expect("test source json should be removed");
     }
 
-    #[test]
-    fn returns_stub_error_for_unimplemented_ethereum_source() {
+    #[tokio::test]
+    async fn returns_error_when_ethereum_source_config_is_missing() {
+        // Safe since this test mutates the environment in a controlled single use context.
+        unsafe {
+            std::env::remove_var("ETH_RPC_URL");
+        }
+
         let source = TransactionEdgeSource::Ethereum {
             wallet: "0x1111111111111111111111111111111111111111".to_string(),
         };
 
-        let result = load_edges_from_source(&source);
+        let result = load_edges_from_source(&source, 1, &HashMap::new()).await;
 
         match result {
             Err(AppError::Source(message)) => {
-                assert_eq!(
-                    message,
-                    "Ethereum source is not implemented yet for wallet 0x1111111111111111111111111111111111111111"
-                );
+                assert_eq!(message, "ETH_RPC_URL environment variable is not set");
             }
-            _ => panic!("expected source error for unimplemented ethereum source"),
+            _ => panic!("expected source error for missing ethereum config"),
         }
     }
 }

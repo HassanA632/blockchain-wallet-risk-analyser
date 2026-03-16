@@ -4,7 +4,9 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::errors::AppError;
-use crate::models::{RiskCategory, RiskEntity, RiskSource, TransactionEdge};
+use crate::models::{
+    RiskCategory, RiskEntity, RiskSource, ServiceType, ServiceWallet, TransactionEdge,
+};
 use crate::validation::normalize_ethereum_address;
 
 #[derive(Debug, Deserialize)]
@@ -55,6 +57,27 @@ fn load_risk_entities_with_source(
         .collect();
 
     Ok(entities)
+}
+
+/// Normalizes service wallet addresses so lookup stays consistent across ingestion, traversal, reporting.
+fn normalize_service_wallet_addresses(service_wallets: Vec<ServiceWallet>) -> Vec<ServiceWallet> {
+    service_wallets
+        .into_iter()
+        .map(|mut service_wallet| {
+            service_wallet.address = service_wallet.address.to_lowercase();
+            service_wallet
+        })
+        .collect()
+}
+
+/// Loads known service wallets from a JSON file so analysts can identify
+/// infrastructure wallets separately from risk intelligence.
+pub fn load_service_wallets(
+    path: impl AsRef<std::path::Path>,
+) -> Result<Vec<ServiceWallet>, AppError> {
+    let file = std::fs::File::open(path)?;
+    let service_wallets = serde_json::from_reader(file)?;
+    Ok(normalize_service_wallet_addresses(service_wallets))
 }
 
 #[cfg(test)]
@@ -171,5 +194,34 @@ mod tests {
         assert_eq!(entities[0].category, RiskCategory::Other);
 
         fs::remove_file(&file_path).expect("test custom risk json should be removed");
+    }
+
+    #[test]
+    fn loads_and_normalizes_service_wallets() {
+        let file_path = temp_file_path("service_wallets.json");
+
+        let json = r#"
+    [
+        {
+            "address": "0xAbCdEf1234567890aBCdef1234567890abCDef12",
+            "label": "Kraken Hot Wallet",
+            "service_type": "Exchange"
+        }
+    ]
+    "#;
+
+        std::fs::write(&file_path, json).expect("test service wallet json should be written");
+
+        let service_wallets =
+            load_service_wallets(&file_path).expect("service wallets should load correctly");
+
+        assert_eq!(service_wallets.len(), 1);
+        assert_eq!(
+            service_wallets[0].address,
+            "0xabcdef1234567890abcdef1234567890abcdef12"
+        );
+        assert_eq!(service_wallets[0].label, "Kraken Hot Wallet");
+
+        std::fs::remove_file(&file_path).expect("test service wallet json should be removed");
     }
 }

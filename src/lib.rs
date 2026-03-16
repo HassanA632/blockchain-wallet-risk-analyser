@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod cli;
 pub mod errors;
+pub mod ethereum;
 pub mod filter;
 pub mod loader;
 pub mod models;
@@ -8,6 +9,7 @@ pub mod output;
 pub mod relationships;
 pub mod report;
 pub mod risk;
+pub mod service_wallets;
 pub mod source;
 pub mod traversal;
 pub mod validation;
