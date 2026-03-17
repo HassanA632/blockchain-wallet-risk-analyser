@@ -112,3 +112,10 @@ pub enum ServiceType {
     Router,
     Service,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenMetadata {
+    pub address: String,
+    pub symbol: String,
+    pub decimals: u8,
+}
