@@ -46,6 +46,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "1.25".to_string(),
                 timestamp: "2026-03-11T10:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
             TransactionEdge {
                 from_address: "0x1111111111111111111111111111111111111111".to_string(),
@@ -55,6 +57,8 @@ mod tests {
                 asset: "USDC".to_string(),
                 amount: "500.00".to_string(),
                 timestamp: "2026-03-11T10:05:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
             TransactionEdge {
                 from_address: "0x2222222222222222222222222222222222222222".to_string(),
@@ -64,6 +68,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "0.75".to_string(),
                 timestamp: "2026-03-11T10:10:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
         ]
     }

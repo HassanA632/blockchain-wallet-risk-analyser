@@ -14,6 +14,7 @@ use serde_json::json;
 
 use crate::errors::AppError;
 use crate::models::{ServiceWallet, TransactionEdge};
+use crate::token_metadata::resolve_token_metadata;
 
 const LOG_QUERY_BLOCK_WINDOW: u64 = 9;
 const LOG_QUERY_WINDOW_COUNT: u64 = 5;
@@ -242,7 +243,43 @@ async fn load_erc20_transaction_edges(
         }
     }
 
-    Ok(deduplicate_edges(edges))
+    let edges = deduplicate_edges(edges);
+    let edges = enrich_erc20_edges_with_metadata(provider, edges).await?;
+
+    Ok(edges)
+}
+
+/// Resolves ERC-20 metadata for unique token contracts so output can
+/// show readable symbols and token precision alongside raw address.
+async fn enrich_erc20_edges_with_metadata(
+    provider: &impl Provider,
+    edges: Vec<TransactionEdge>,
+) -> Result<Vec<TransactionEdge>, AppError> {
+    let mut metadata_by_asset = HashMap::new();
+
+    for edge in &edges {
+        if metadata_by_asset.contains_key(&edge.asset) {
+            continue;
+        }
+
+        if let Ok(metadata) = resolve_token_metadata(provider, &edge.asset).await {
+            metadata_by_asset.insert(edge.asset.clone(), metadata);
+        }
+    }
+
+    let enriched_edges = edges
+        .into_iter()
+        .map(|mut edge| {
+            if let Some(metadata) = metadata_by_asset.get(&edge.asset) {
+                edge.asset_symbol = Some(metadata.symbol.clone());
+                edge.asset_decimals = Some(metadata.decimals);
+            }
+
+            edge
+        })
+        .collect();
+
+    Ok(enriched_edges)
 }
 
 /// Loads ETH transfer edges for the wallet using Alchemy transfer API.
@@ -577,6 +614,8 @@ fn map_transfer_log_to_edge(
         asset: format!("{token_address:#x}"),
         amount,
         timestamp,
+        asset_symbol: None,
+        asset_decimals: None,
     })
 }
 
@@ -597,6 +636,8 @@ fn map_alchemy_transfer_to_edge(transfer: AlchemyAssetTransfer) -> Option<Transa
         asset: "ETH".to_string(),
         amount: amount.to_string(),
         timestamp,
+        asset_symbol: None,
+        asset_decimals: None,
     })
 }
 
@@ -753,6 +794,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "0.5".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
             TransactionEdge {
                 from_address: "0xaaa".to_string(),
@@ -761,6 +804,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "0.5".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
         ];
 
@@ -803,6 +848,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "1".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
             TransactionEdge {
                 from_address: "0x3333333333333333333333333333333333333333".to_string(),
@@ -811,6 +858,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "2".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
         ];
 
@@ -839,6 +888,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "1".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
             TransactionEdge {
                 from_address: "0x3333333333333333333333333333333333333333".to_string(),
@@ -847,6 +898,8 @@ mod tests {
                 asset: "ETH".to_string(),
                 amount: "2".to_string(),
                 timestamp: "2026-03-14T12:00:00Z".to_string(),
+                asset_symbol: None,
+                asset_decimals: None,
             },
         ];
 
@@ -869,5 +922,22 @@ mod tests {
 
         assert!(!formatted.contains("0x2222222222222222222222222222222222222222"));
         assert!(formatted.contains("0x3333333333333333333333333333333333333333"));
+    }
+
+    #[test]
+    fn keeps_transaction_edge_metadata_fields() {
+        let edge = TransactionEdge {
+            from_address: "0xaaa".to_string(),
+            to_address: "0xbbb".to_string(),
+            tx_hash: "0xtx".to_string(),
+            asset: "0xtoken".to_string(),
+            amount: "1000".to_string(),
+            timestamp: "2026-03-14T12:00:00Z".to_string(),
+            asset_symbol: Some("USDC".to_string()),
+            asset_decimals: Some(6),
+        };
+
+        assert_eq!(edge.asset_symbol.as_deref(), Some("USDC"));
+        assert_eq!(edge.asset_decimals, Some(6));
     }
 }

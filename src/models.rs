@@ -40,7 +40,7 @@ pub struct Finding {
     pub relationship_path: Vec<RelationshipStep>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransactionEdge {
     pub from_address: String,
     pub to_address: String,
@@ -48,6 +48,8 @@ pub struct TransactionEdge {
     pub asset: String,
     pub amount: String,
     pub timestamp: String,
+    pub asset_symbol: Option<String>,
+    pub asset_decimals: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
